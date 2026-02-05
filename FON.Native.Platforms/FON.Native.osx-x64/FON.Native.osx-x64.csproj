@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>netstandard2.0</TargetFramework>
+		<PackageId>FON.Native.osx-x64</PackageId>
+		<Title>FON Native Library (macOS x64)</Title>
+		<PackageDescription>Native library for FON on macOS x64. Usually installed automatically via FON.Native package.</PackageDescription>
+		<IncludeBuildOutput>false</IncludeBuildOutput>
+		<IncludeSymbols>false</IncludeSymbols>
+		<SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="runtimes\osx-x64\native\**" Pack="true" PackagePath="runtimes\osx-x64\native" />
+	</ItemGroup>
+
+</Project>

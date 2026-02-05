@@ -1,0 +1,31 @@
+<Project>
+	<PropertyGroup>
+		<LangVersion>preview</LangVersion>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<!-- Package metadata -->
+		<Authors>VeyDlin</Authors>
+		<Company>FastObjectNotation</Company>
+		<Product>FON</Product>
+		<Copyright>Copyright (c) FastObjectNotation 2025</Copyright>
+		<Description>Fast Object Notation - High-performance serialization library</Description>
+		<PackageTags>serialization;json-alternative;high-performance;parallel;fon;binary;dotnet;native;simd</PackageTags>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageProjectUrl>https://github.com/FastObjectNotation/FON.net</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/FastObjectNotation/FON.net.git</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+
+		<!-- Version - can be overridden by CI -->
+		<VersionPrefix>0.1.0</VersionPrefix>
+		<VersionSuffix></VersionSuffix>
+
+		<!-- Build settings -->
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<NoWarn>$(NoWarn);CS1591</NoWarn>
+
+		<!-- Deterministic builds for CI -->
+		<Deterministic>true</Deterministic>
+		<ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+	</PropertyGroup>
+</Project>

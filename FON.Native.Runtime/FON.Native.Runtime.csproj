@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<RootNamespace>FON.Native</RootNamespace>
+		<AssemblyName>FON.Native.Runtime</AssemblyName>
+		<PackageId>FON.Native.Runtime</PackageId>
+		<Title>FON Native Runtime</Title>
+		<PackageDescription>P/Invoke bindings for FON native library. This package provides the managed interface to the native C++ acceleration library. Requires a platform-specific native package (FON.Native.win-x64, FON.Native.linux-x64, etc.) or use FON.Native which includes all platforms.</PackageDescription>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<Optimize>true</Optimize>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\FON\FON.csproj" />
+	</ItemGroup>
+
+</Project>

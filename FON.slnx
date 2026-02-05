@@ -1,0 +1,24 @@
+<Solution>
+  <!-- Core packages -->
+  <Project Path="FON/FON.csproj" />
+  <Project Path="FON.Native/FON.Native.csproj" />
+  <Project Path="FON.Native.Runtime/FON.Native.Runtime.csproj" />
+
+  <!-- Platform-specific native packages -->
+  <Folder Name="/FON.Native.Platforms/">
+    <Project Path="FON.Native.Platforms/FON.Native.win-x64/FON.Native.win-x64.csproj" />
+    <Project Path="FON.Native.Platforms/FON.Native.win-arm64/FON.Native.win-arm64.csproj" />
+    <Project Path="FON.Native.Platforms/FON.Native.linux-x64/FON.Native.linux-x64.csproj" />
+    <Project Path="FON.Native.Platforms/FON.Native.linux-arm64/FON.Native.linux-arm64.csproj" />
+    <Project Path="FON.Native.Platforms/FON.Native.linux-musl-x64/FON.Native.linux-musl-x64.csproj" />
+    <Project Path="FON.Native.Platforms/FON.Native.linux-musl-arm64/FON.Native.linux-musl-arm64.csproj" />
+    <Project Path="FON.Native.Platforms/FON.Native.osx-x64/FON.Native.osx-x64.csproj" />
+    <Project Path="FON.Native.Platforms/FON.Native.osx-arm64/FON.Native.osx-arm64.csproj" />
+  </Folder>
+
+  <!-- Tests -->
+  <Folder Name="/FON.Tests/">
+    <Project Path="FON.Tests/FON.Test/FON.Test.csproj" />
+    <Project Path="FON.Tests/FON.Native.Test/FON.Native.Test.csproj" />
+  </Folder>
+</Solution>

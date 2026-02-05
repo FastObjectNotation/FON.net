@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>netstandard2.0</TargetFramework>
+		<PackageId>FON.Native.win-arm64</PackageId>
+		<Title>FON Native Library (Windows ARM64)</Title>
+		<PackageDescription>Native library for FON on Windows ARM64. Usually installed automatically via FON.Native package.</PackageDescription>
+		<IncludeBuildOutput>false</IncludeBuildOutput>
+		<IncludeSymbols>false</IncludeSymbols>
+		<SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="runtimes\win-arm64\native\**" Pack="true" PackagePath="runtimes\win-arm64\native" />
+	</ItemGroup>
+
+</Project>

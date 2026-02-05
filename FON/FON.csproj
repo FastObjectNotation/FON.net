@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<RootNamespace>FON</RootNamespace>
+		<AssemblyName>FON</AssemblyName>
+		<PackageId>FON</PackageId>
+		<Title>FON - Fast Object Notation</Title>
+		<PackageDescription>High-performance serialization library with parallel processing support. Features SIMD-optimized parsing, zero-allocation deserialization, and automatic strategy selection. Supports all primitive types, arrays, and binary data. Optional native acceleration available via FON.Native package.</PackageDescription>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+		<Optimize>true</Optimize>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="..\README.md" Pack="true" PackagePath="\" Condition="Exists('..\README.md')" />
+	</ItemGroup>
+	
+</Project>

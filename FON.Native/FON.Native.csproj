@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<PackageId>FON.Native</PackageId>
+		<Title>FON Native Acceleration</Title>
+		<PackageDescription>Native C++ acceleration for FON serialization library. This meta-package includes native binaries for all supported platforms: Windows (x64, ARM64), Linux (x64, ARM64, musl), and macOS (x64, ARM64). Just install this package alongside FON to enable native acceleration - the library auto-detects and uses native code when available.</PackageDescription>
+		<IncludeBuildOutput>false</IncludeBuildOutput>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\FON.Native.Runtime\FON.Native.Runtime.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\FON.Native.Platforms\FON.Native.win-x64\FON.Native.win-x64.csproj" />
+		<ProjectReference Include="..\FON.Native.Platforms\FON.Native.win-arm64\FON.Native.win-arm64.csproj" />
+		<ProjectReference Include="..\FON.Native.Platforms\FON.Native.linux-x64\FON.Native.linux-x64.csproj" />
+		<ProjectReference Include="..\FON.Native.Platforms\FON.Native.linux-arm64\FON.Native.linux-arm64.csproj" />
+		<ProjectReference Include="..\FON.Native.Platforms\FON.Native.linux-musl-x64\FON.Native.linux-musl-x64.csproj" />
+		<ProjectReference Include="..\FON.Native.Platforms\FON.Native.linux-musl-arm64\FON.Native.linux-musl-arm64.csproj" />
+		<ProjectReference Include="..\FON.Native.Platforms\FON.Native.osx-x64\FON.Native.osx-x64.csproj" />
+		<ProjectReference Include="..\FON.Native.Platforms\FON.Native.osx-arm64\FON.Native.osx-arm64.csproj" />
+	</ItemGroup>
+
+</Project>

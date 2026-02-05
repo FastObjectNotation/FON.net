@@ -1,0 +1,389 @@
+name: Build and Publish
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  # Check if release needed
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      should_release: ${{ steps.check_release.outputs.should_release }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Extract version from Directory.Build.props
+      id: get_version
+      run: |
+        VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Detected version: $VERSION"
+
+    - name: Check if release exists
+      id: check_release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        if gh release view "v$VERSION" > /dev/null 2>&1; then
+          echo "Release v$VERSION already exists, skipping"
+          echo "should_release=false" >> $GITHUB_OUTPUT
+        else
+          echo "Release v$VERSION does not exist, will create"
+          echo "should_release=true" >> $GITHUB_OUTPUT
+        fi
+
+  # Build native libraries for each platform
+  build-native-windows-x64:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Configure CMake
+      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release -A x64
+
+    - name: Build native
+      run: cmake --build build --config Release
+
+    - name: Build .NET
+      run: dotnet build --configuration Release
+
+    - name: Copy native library for tests
+      run: copy build\Release\fon_native.dll FON.Tests\FON.Native.Test\bin\Release\net10.0\
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-win-x64
+        path: build/Release/fon_native.dll
+
+  build-native-windows-arm64:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Configure CMake
+      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release -A ARM64
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-win-arm64
+        path: build/Release/fon_native.dll
+
+  build-native-linux-x64:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Configure CMake
+      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build native
+      run: cmake --build build --config Release
+
+    - name: Build .NET
+      run: dotnet build --configuration Release
+
+    - name: Copy native library for tests
+      run: cp build/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-linux-x64
+        path: build/libfon_native.so
+
+  build-native-linux-arm64:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-24.04-arm
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Configure CMake
+      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build native
+      run: cmake --build build --config Release
+
+    - name: Build .NET
+      run: dotnet build --configuration Release
+
+    - name: Copy native library for tests
+      run: cp build/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-linux-arm64
+        path: build/libfon_native.so
+
+  build-native-linux-musl-x64:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: apk add --no-cache build-base cmake
+
+    - name: Configure CMake
+      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-linux-musl-x64
+        path: build/libfon_native.so
+
+  build-native-linux-musl-arm64:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Build with Docker (Alpine ARM64)
+      run: |
+        docker run --rm --platform linux/arm64 \
+          -v ${{ github.workspace }}:/workspace \
+          -w /workspace \
+          alpine:latest \
+          sh -c "apk add --no-cache build-base cmake && cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release"
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-linux-musl-arm64
+        path: build/libfon_native.so
+
+  build-native-macos-x64:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure CMake (cross-compile for x86_64)
+      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-osx-x64
+        path: build/libfon_native.dylib
+
+  build-native-macos-arm64:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Configure CMake
+      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+
+    - name: Build native
+      run: cmake --build build --config Release
+
+    - name: Build .NET
+      run: dotnet build --configuration Release
+
+    - name: Copy native library for tests
+      run: cp build/libfon_native.dylib FON.Tests/FON.Native.Test/bin/Release/net10.0/
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-osx-arm64
+        path: build/libfon_native.dylib
+
+  # Pack, publish and create release
+  publish:
+    needs:
+      - check-version
+      - build-native-windows-x64
+      - build-native-windows-arm64
+      - build-native-linux-x64
+      - build-native-linux-arm64
+      - build-native-linux-musl-x64
+      - build-native-linux-musl-arm64
+      - build-native-macos-x64
+      - build-native-macos-arm64
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Download all native artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Copy native binaries to platform packages
+      run: |
+        # Windows x64
+        mkdir -p FON.Native.Platforms/FON.Native.win-x64/runtimes/win-x64/native
+        cp artifacts/native-win-x64/fon_native.dll FON.Native.Platforms/FON.Native.win-x64/runtimes/win-x64/native/
+
+        # Windows ARM64
+        mkdir -p FON.Native.Platforms/FON.Native.win-arm64/runtimes/win-arm64/native
+        cp artifacts/native-win-arm64/fon_native.dll FON.Native.Platforms/FON.Native.win-arm64/runtimes/win-arm64/native/
+
+        # Linux x64
+        mkdir -p FON.Native.Platforms/FON.Native.linux-x64/runtimes/linux-x64/native
+        cp artifacts/native-linux-x64/libfon_native.so FON.Native.Platforms/FON.Native.linux-x64/runtimes/linux-x64/native/
+
+        # Linux ARM64
+        mkdir -p FON.Native.Platforms/FON.Native.linux-arm64/runtimes/linux-arm64/native
+        cp artifacts/native-linux-arm64/libfon_native.so FON.Native.Platforms/FON.Native.linux-arm64/runtimes/linux-arm64/native/
+
+        # Linux musl x64
+        mkdir -p FON.Native.Platforms/FON.Native.linux-musl-x64/runtimes/linux-musl-x64/native
+        cp artifacts/native-linux-musl-x64/libfon_native.so FON.Native.Platforms/FON.Native.linux-musl-x64/runtimes/linux-musl-x64/native/
+
+        # Linux musl ARM64
+        mkdir -p FON.Native.Platforms/FON.Native.linux-musl-arm64/runtimes/linux-musl-arm64/native
+        cp artifacts/native-linux-musl-arm64/libfon_native.so FON.Native.Platforms/FON.Native.linux-musl-arm64/runtimes/linux-musl-arm64/native/
+
+        # macOS x64
+        mkdir -p FON.Native.Platforms/FON.Native.osx-x64/runtimes/osx-x64/native
+        cp artifacts/native-osx-x64/libfon_native.dylib FON.Native.Platforms/FON.Native.osx-x64/runtimes/osx-x64/native/
+
+        # macOS ARM64
+        mkdir -p FON.Native.Platforms/FON.Native.osx-arm64/runtimes/osx-arm64/native
+        cp artifacts/native-osx-arm64/libfon_native.dylib FON.Native.Platforms/FON.Native.osx-arm64/runtimes/osx-arm64/native/
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Pack NuGet packages
+      run: |
+        VERSION="${{ needs.check-version.outputs.version }}"
+
+        dotnet pack FON/FON.csproj --configuration Release --no-build -p:Version=$VERSION --output ./packages
+        dotnet pack FON.Native.Runtime/FON.Native.Runtime.csproj --configuration Release --no-build -p:Version=$VERSION --output ./packages
+
+        # Pack platform packages
+        dotnet pack FON.Native.Platforms/FON.Native.win-x64/FON.Native.win-x64.csproj --configuration Release -p:Version=$VERSION --output ./packages
+        dotnet pack FON.Native.Platforms/FON.Native.win-arm64/FON.Native.win-arm64.csproj --configuration Release -p:Version=$VERSION --output ./packages
+        dotnet pack FON.Native.Platforms/FON.Native.linux-x64/FON.Native.linux-x64.csproj --configuration Release -p:Version=$VERSION --output ./packages
+        dotnet pack FON.Native.Platforms/FON.Native.linux-arm64/FON.Native.linux-arm64.csproj --configuration Release -p:Version=$VERSION --output ./packages
+        dotnet pack FON.Native.Platforms/FON.Native.linux-musl-x64/FON.Native.linux-musl-x64.csproj --configuration Release -p:Version=$VERSION --output ./packages
+        dotnet pack FON.Native.Platforms/FON.Native.linux-musl-arm64/FON.Native.linux-musl-arm64.csproj --configuration Release -p:Version=$VERSION --output ./packages
+        dotnet pack FON.Native.Platforms/FON.Native.osx-x64/FON.Native.osx-x64.csproj --configuration Release -p:Version=$VERSION --output ./packages
+        dotnet pack FON.Native.Platforms/FON.Native.osx-arm64/FON.Native.osx-arm64.csproj --configuration Release -p:Version=$VERSION --output ./packages
+
+        # Pack the meta-package last
+        dotnet pack FON.Native/FON.Native.csproj --configuration Release --no-build -p:Version=$VERSION --output ./packages
+
+    - name: List packages
+      run: ls -la ./packages
+
+    - name: Publish to NuGet.org
+      run: |
+        dotnet nuget push "./packages/*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ secrets.NUGET_API_TOKEN }} --skip-duplicate
+
+    - name: Publish to GitHub Packages
+      run: |
+        dotnet nuget add source --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+        dotnet nuget push "./packages/*.nupkg" --source "github" --skip-duplicate
+
+    - name: Create GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION="${{ needs.check-version.outputs.version }}"
+        gh release create "v$VERSION" \
+          --title "v$VERSION" \
+          --generate-notes \
+          ./packages/*.nupkg
+
+    - name: Upload packages as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-packages
+        path: packages/*.nupkg
