@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<TargetFramework>netstandard2.0</TargetFramework>
-		<PackageId>FON.Native.linux-musl-arm64</PackageId>
+		<PackageId>FastObjectNotation.Native.linux-musl-arm64</PackageId>
 		<Title>FON Native Library (Linux musl ARM64)</Title>
 		<PackageDescription>Native library for FON on Alpine Linux ARM64. Usually installed automatically via FON.Native package.</PackageDescription>
 		<IncludeBuildOutput>false</IncludeBuildOutput>

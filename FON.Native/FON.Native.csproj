@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
-		<PackageId>FON.Native</PackageId>
+		<PackageId>FastObjectNotation.Native</PackageId>
 		<Title>FON Native Acceleration</Title>
 		<PackageDescription>Native C++ acceleration for FON serialization library. This meta-package includes native binaries for all supported platforms: Windows (x64, ARM64), Linux (x64, ARM64, musl), and macOS (x64, ARM64). Just install this package alongside FON to enable native acceleration - the library auto-detects and uses native code when available.</PackageDescription>
 		<IncludeBuildOutput>false</IncludeBuildOutput>

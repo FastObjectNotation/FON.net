@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<TargetFramework>netstandard2.0</TargetFramework>
-		<PackageId>FON.Native.osx-arm64</PackageId>
+		<PackageId>FastObjectNotation.Native.osx-arm64</PackageId>
 		<Title>FON Native Library (macOS ARM64)</Title>
 		<PackageDescription>Native library for FON on macOS ARM64 (Apple Silicon). Usually installed automatically via FON.Native package.</PackageDescription>
 		<IncludeBuildOutput>false</IncludeBuildOutput>

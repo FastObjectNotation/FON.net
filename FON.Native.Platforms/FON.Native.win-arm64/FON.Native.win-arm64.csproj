@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<TargetFramework>netstandard2.0</TargetFramework>
-		<PackageId>FON.Native.win-arm64</PackageId>
+		<PackageId>FastObjectNotation.Native.win-arm64</PackageId>
 		<Title>FON Native Library (Windows ARM64)</Title>
 		<PackageDescription>Native library for FON on Windows ARM64. Usually installed automatically via FON.Native package.</PackageDescription>
 		<IncludeBuildOutput>false</IncludeBuildOutput>
