@@ -9,6 +9,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<None Include="_._" Pack="true" PackagePath="lib\net10.0\_._" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\FON.Native.Runtime\FON.Native.Runtime.csproj" />
 	</ItemGroup>
 
