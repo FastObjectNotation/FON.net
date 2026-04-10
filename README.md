@@ -22,10 +22,10 @@ dotnet add package FON
 
 ```bash
 dotnet add package FON
-dotnet add package FON.Native
+dotnet add package FastObjectNotation.Native
 ```
 
-The `FON.Native` package automatically includes native binaries for all supported platforms.
+The `FastObjectNotation.Native` package automatically includes native binaries for all supported platforms.
 
 ## Quick Start
 
@@ -158,16 +158,16 @@ FON includes optional native acceleration via a C++ library for maximum performa
 | Package | Description |
 |---------|-------------|
 | `FON` | Core library (managed, works everywhere) |
-| `FON.Native` | Meta-package that includes all native binaries |
-| `FON.Native.Runtime` | P/Invoke bindings (included by FON.Native) |
-| `FON.Native.win-x64` | Windows x64 native binary |
-| `FON.Native.win-arm64` | Windows ARM64 native binary |
-| `FON.Native.linux-x64` | Linux x64 native binary |
-| `FON.Native.linux-arm64` | Linux ARM64 native binary |
-| `FON.Native.linux-musl-x64` | Alpine Linux x64 native binary |
-| `FON.Native.linux-musl-arm64` | Alpine Linux ARM64 native binary |
-| `FON.Native.osx-x64` | macOS x64 native binary |
-| `FON.Native.osx-arm64` | macOS ARM64 (Apple Silicon) native binary |
+| `FastObjectNotation.Native` | Meta-package that includes all native binaries |
+| `FastObjectNotation.Native.Runtime` | P/Invoke bindings (included by FastObjectNotation.Native) |
+| `FastObjectNotation.Native.win-x64` | Windows x64 native binary |
+| `FastObjectNotation.Native.win-arm64` | Windows ARM64 native binary |
+| `FastObjectNotation.Native.linux-x64` | Linux x64 native binary |
+| `FastObjectNotation.Native.linux-arm64` | Linux ARM64 native binary |
+| `FastObjectNotation.Native.linux-musl-x64` | Alpine Linux x64 native binary |
+| `FastObjectNotation.Native.linux-musl-arm64` | Alpine Linux ARM64 native binary |
+| `FastObjectNotation.Native.osx-x64` | macOS x64 native binary |
+| `FastObjectNotation.Native.osx-arm64` | macOS ARM64 (Apple Silicon) native binary |
 
 ### Checking Native Availability
 
@@ -189,8 +189,8 @@ if (FonAccelerator.IsAvailable) {
 | Large datasets (>10000 records) | Native recommended |
 | Memory-constrained environments | Native (lower allocations) |
 | Docker/Alpine containers | Use `linux-musl-*` packages |
-| Cross-platform deployment | Install `FON.Native` for all platforms |
-| Single platform deployment | Install specific `FON.Native.{rid}` package |
+| Cross-platform deployment | Install `FastObjectNotation.Native` for all platforms |
+| Single platform deployment | Install specific `FastObjectNotation.Native.{rid}` package |
 
 ### Platform-Specific Installation
 
@@ -198,17 +198,17 @@ If you only need native support for specific platforms (smaller deployment):
 
 ```bash
 # Windows x64 only
-dotnet add package FON.Native.Runtime
-dotnet add package FON.Native.win-x64
+dotnet add package FastObjectNotation.Native.Runtime
+dotnet add package FastObjectNotation.Native.win-x64
 
 # Linux x64 only
-dotnet add package FON.Native.Runtime
-dotnet add package FON.Native.linux-x64
+dotnet add package FastObjectNotation.Native.Runtime
+dotnet add package FastObjectNotation.Native.linux-x64
 
 # Multiple specific platforms
-dotnet add package FON.Native.Runtime
-dotnet add package FON.Native.win-x64
-dotnet add package FON.Native.linux-x64
+dotnet add package FastObjectNotation.Native.Runtime
+dotnet add package FastObjectNotation.Native.win-x64
+dotnet add package FastObjectNotation.Native.linux-x64
 ```
 
 ## Performance Tips
