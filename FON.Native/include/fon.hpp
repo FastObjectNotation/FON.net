@@ -24,6 +24,7 @@ namespace fon {
         // Configuration
         static inline bool deserialize_raw_unpack = false;
         static inline int parallel_threshold = 2000;
+        static inline int max_depth = 64;
 
         // ==================== SERIALIZATION ====================
         static void serialize_to_file(const FonDump& dump, const std::filesystem::path& path, int max_threads = 0);

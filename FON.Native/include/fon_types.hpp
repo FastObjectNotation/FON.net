@@ -18,17 +18,18 @@ namespace fon {
 
     // Supported value types
     using FonValue = std::variant<
-        uint8_t,                    // 'e' - byte
-        int16_t,                    // 't' - short
-        int32_t,                    // 'i' - int
-        uint32_t,                   // 'u' - uint
-        int64_t,                    // 'l' - long
-        uint64_t,                   // 'g' - ulong
-        float,                      // 'f' - float
-        double,                     // 'd' - double
-        bool,                       // 'b' - bool
-        std::string,                // 's' - string
-        std::shared_ptr<RawData>,   // 'r' - raw data
+        uint8_t,                                          // 'e' - byte
+        int16_t,                                          // 't' - short
+        int32_t,                                          // 'i' - int
+        uint32_t,                                         // 'u' - uint
+        int64_t,                                          // 'l' - long
+        uint64_t,                                         // 'g' - ulong
+        float,                                            // 'f' - float
+        double,                                           // 'd' - double
+        bool,                                             // 'b' - bool
+        std::string,                                      // 's' - string
+        std::shared_ptr<RawData>,                         // 'r' - raw data
+        std::shared_ptr<FonCollection>,                   // 'o' - nested object
         std::vector<uint8_t>,
         std::vector<int16_t>,
         std::vector<int32_t>,
@@ -38,7 +39,8 @@ namespace fon {
         std::vector<float>,
         std::vector<double>,
         std::vector<bool>,
-        std::vector<std::string>
+        std::vector<std::string>,
+        std::vector<std::shared_ptr<FonCollection>>       // 'o' - array of objects
     >;
 
     // Type codes
@@ -53,6 +55,7 @@ namespace fon {
     constexpr char TYPE_BOOL   = 'b';
     constexpr char TYPE_STRING = 's';
     constexpr char TYPE_RAW    = 'r';
+    constexpr char TYPE_OBJECT = 'o';
 
 
 
