@@ -7,6 +7,23 @@ public partial class Fon {
     public static bool DeserializeRawUnpack { get; set; } = false;
 
 
+    private static int maxDepth = 64;
+
+    /// <summary>
+    /// Maximum number of nested brackets ({} or []) the parser will accept
+    /// before throwing FormatException. Must be at least 1. Default: 64.
+    /// </summary>
+    public static int MaxDepth {
+        get => maxDepth;
+        set {
+            if (value < 1) {
+                throw new ArgumentOutOfRangeException(nameof(value), "MaxDepth must be at least 1");
+            }
+            maxDepth = value;
+        }
+    }
+
+
     public static readonly Dictionary<Type, char> SupportTypes = new() {
         { typeof(byte),         'e' },
         { typeof(short),        't' },
