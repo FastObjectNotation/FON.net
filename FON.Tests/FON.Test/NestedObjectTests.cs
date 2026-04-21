@@ -435,4 +435,113 @@ public class NestedObjectTests {
             tempFile.Delete();
         }
     }
+
+
+    private static FonDump BuildNestedDump(int recordCount) {
+        var dump = new FonDump();
+        for (int i = 0; i < recordCount; i++) {
+            var inner = new FonCollection {
+                { "id", i },
+                { "name", $"item-{i}" }
+            };
+            var outer = new FonCollection {
+                { "i", i },
+                { "nested", inner },
+                { "items", new List<FonCollection> {
+                    new FonCollection { { "x", i + 1 } },
+                    new FonCollection { { "x", i + 2 } }
+                } }
+            };
+            dump.TryAdd((ulong)i, outer);
+        }
+        return dump;
+    }
+
+
+    private static void AssertDumpEquals(FonDump expected, FonDump actual) {
+        Assert.Equal(expected.Count, actual.Count);
+        for (ulong i = 0; i < (ulong)expected.Count; i++) {
+            var e = expected[i];
+            var a = actual[i];
+            Assert.Equal(e.Get<int>("i"), a.Get<int>("i"));
+            Assert.Equal(e.Get<FonCollection>("nested").Get<int>("id"),
+                         a.Get<FonCollection>("nested").Get<int>("id"));
+            Assert.Equal(e.Get<FonCollection>("nested").Get<string>("name"),
+                         a.Get<FonCollection>("nested").Get<string>("name"));
+            var ei = e.Get<List<FonCollection>>("items");
+            var ai = a.Get<List<FonCollection>>("items");
+            Assert.Equal(ei.Count, ai.Count);
+            for (int j = 0; j < ei.Count; j++) {
+                Assert.Equal(ei[j].Get<int>("x"), ai[j].Get<int>("x"));
+            }
+        }
+    }
+
+
+    [Fact]
+    public async Task RoundTrip_AllSerializeMethods_NestedData() {
+        var dump = BuildNestedDump(10);
+
+        var f1 = new FileInfo(Path.GetTempFileName());
+        var f2 = new FileInfo(Path.GetTempFileName());
+        var f3 = new FileInfo(Path.GetTempFileName());
+        var f4 = new FileInfo(Path.GetTempFileName());
+
+        try {
+            await Fon.SerializeToFileAsync(dump, f1);
+            await Fon.SerializeToFilePipelineAsync(dump, f2);
+            await Fon.SerializeToFileChunkedAsync(dump, f3, chunkSize: 4);
+            await Fon.SerializeToFileAutoAsync(dump, f4);
+
+            var b1 = await File.ReadAllBytesAsync(f1.FullName);
+            var b2 = await File.ReadAllBytesAsync(f2.FullName);
+            var b3 = await File.ReadAllBytesAsync(f3.FullName);
+            var b4 = await File.ReadAllBytesAsync(f4.FullName);
+
+            Assert.Equal(b1, b2);
+            Assert.Equal(b1, b3);
+            Assert.Equal(b1, b4);
+        } finally {
+            f1.Delete();
+            f2.Delete();
+            f3.Delete();
+            f4.Delete();
+        }
+    }
+
+
+    [Fact]
+    public async Task RoundTrip_AllDeserializeMethods_NestedData() {
+        var dump = BuildNestedDump(10);
+
+        var file = new FileInfo(Path.GetTempFileName());
+        try {
+            await Fon.SerializeToFileAutoAsync(dump, file);
+
+            var loaded1 = await Fon.DeserializeFromFileAsync(file);
+            var loaded2 = await Fon.DeserializeFromFileChunkedAsync(file, chunkSize: 4);
+            var loaded3 = await Fon.DeserializeFromFileAutoAsync(file);
+
+            AssertDumpEquals(dump, loaded1);
+            AssertDumpEquals(dump, loaded2);
+            AssertDumpEquals(dump, loaded3);
+        } finally {
+            file.Delete();
+        }
+    }
+
+
+    [Fact]
+    public async Task RoundTrip_LargeNestedDump_UnderParallelism() {
+        var dump = BuildNestedDump(5000);
+
+        var file = new FileInfo(Path.GetTempFileName());
+        try {
+            await Fon.SerializeToFileAutoAsync(dump, file);
+            var loaded = await Fon.DeserializeFromFileAutoAsync(file);
+            AssertDumpEquals(dump, loaded);
+        } finally {
+            file.Delete();
+        }
+    }
 }
