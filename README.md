@@ -79,8 +79,9 @@ foreach (var (key, record) in loaded.FonObjects) {
 | `string` | `s` | `name=s:"Hello"` |
 | `bool` | `b` | `active=b:1` |
 | `RawData` | `r` | `data=r:"base64..."` |
+| `FonCollection` | `o` | `user=o:{id=i:1,name=s:"Bob"}` |
 
-All types support arrays: `values=i:[1,2,3,4,5]`
+All primitive and string types support arrays (`values=i:[1,2,3,4,5]`). Nested objects also support arrays of objects (`items=o:[{id=i:1},{id=i:2}]`).
 
 ## Format Specification
 
@@ -103,6 +104,17 @@ scores=i:[95,87,92,88],tags=s:["admin","user"]
 
 # Binary data (base64 encoded)
 image=r:"iVBORw0KGgoAAAANSUhEUg..."
+```
+
+```
+# Nested objects
+user=o:{id=i:42,name=s:"Bob",addr=o:{city=s:"NY",zip=i:10001}}
+
+# Arrays of objects
+items=o:[{id=i:1,qty=i:5},{id=i:2,qty=i:3}]
+
+# Empty object and empty array of objects
+empty=o:{},none=o:[]
 ```
 
 ## API Reference
@@ -147,6 +159,9 @@ Fon.DeserializeRawUnpack = true;
 
 // Adjust threshold for auto method selection (default: 2000)
 Fon.ParallelMethodThreshold = 2000;
+
+// Maximum bracket nesting depth (default: 64)
+Fon.MaxDepth = 64;
 ```
 
 ## Native Acceleration
