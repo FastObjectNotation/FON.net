@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.IO;
 using FON.Core;
 using FON.Types;
 
@@ -384,5 +386,55 @@ public class NestedObjectTests {
 
         Assert.True(t1.Disposed);
         Assert.True(t2.Disposed);
+    }
+
+
+    [Theory]
+    [InlineData("contains}brace")]
+    [InlineData("contains{open")]
+    [InlineData("contains[bracket")]
+    [InlineData("contains]closebr")]
+    [InlineData("contains,comma")]
+    [InlineData("contains=equals")]
+    [InlineData("multi}{][,=mix")]
+    public void RoundTrip_NestedString_WithMetacharacter(string payload) {
+        var inner = new FonCollection { { "txt", payload } };
+        var outer = new FonCollection { { "wrap", inner } };
+
+        var dump = new FonDump();
+        dump.TryAdd(0, outer);
+
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            Fon.SerializeToFileAuto(dump, tempFile);
+            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+
+            var got = loaded[0].Get<FonCollection>("wrap").Get<string>("txt");
+            Assert.Equal(payload, got);
+        } finally {
+            tempFile.Delete();
+        }
+    }
+
+
+    [Fact]
+    public void RoundTrip_NestedString_WithStandardEscapes() {
+        var payload = "line1\nline2\twith\\backslash\"quote";
+        var inner = new FonCollection { { "txt", payload } };
+        var outer = new FonCollection { { "wrap", inner } };
+
+        var dump = new FonDump();
+        dump.TryAdd(0, outer);
+
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            Fon.SerializeToFileAuto(dump, tempFile);
+            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+
+            var got = loaded[0].Get<FonCollection>("wrap").Get<string>("txt");
+            Assert.Equal(payload, got);
+        } finally {
+            tempFile.Delete();
+        }
     }
 }
