@@ -35,7 +35,8 @@ public partial class Fon {
         { typeof(double),       'd' },
         { typeof(string),       's' },
         { typeof(bool),         'b' },
-        { typeof(RawData),      'r' }
+        { typeof(RawData),      'r' },
+        { typeof(FonCollection),'o' }
     };
 
 

@@ -43,4 +43,11 @@ public class NestedObjectTests {
             Fon.MaxDepth = original;
         }
     }
+
+
+    [Fact]
+    public void SupportTypes_RegistersFonCollectionAsObject() {
+        Assert.True(Fon.SupportTypes.ContainsKey(typeof(FonCollection)));
+        Assert.Equal('o', Fon.SupportTypes[typeof(FonCollection)]);
+    }
 }
