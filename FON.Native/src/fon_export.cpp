@@ -419,3 +419,54 @@ FON_API int32_t fon_collection_get_float_array(FonCollectionHandle collection, c
         return FON_ERROR_INVALID_ARGUMENT;
     }
 }
+
+
+FON_API FonCollectionHandle fon_collection_get_collection(FonCollectionHandle parent, const char* key, FonError* error) {
+    if (!parent || !key) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return nullptr;
+    }
+
+    try {
+        auto* p = static_cast<fon::FonCollection*>(parent);
+        auto* shared = p->try_get<std::shared_ptr<fon::FonCollection>>(key);
+        if (!shared || !*shared) {
+            set_error(error, FON_ERROR_INVALID_ARGUMENT, "Key not found or not a nested collection");
+            return nullptr;
+        }
+        return shared->get();
+    } catch (const std::exception& e) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, e.what());
+        return nullptr;
+    }
+}
+
+
+FON_API int32_t fon_collection_get_collection_array(FonCollectionHandle parent, const char* key, FonCollectionHandle* buffer, int64_t buffer_size, int64_t* actual_size, FonError* error) {
+    if (!parent || !key || !actual_size) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+
+    try {
+        auto* p = static_cast<fon::FonCollection*>(parent);
+        auto* vec = p->try_get<std::vector<std::shared_ptr<fon::FonCollection>>>(key);
+        if (!vec) {
+            set_error(error, FON_ERROR_INVALID_ARGUMENT, "Key not found or not an array of nested collections");
+            return FON_ERROR_INVALID_ARGUMENT;
+        }
+
+        *actual_size = static_cast<int64_t>(vec->size());
+
+        if (buffer && buffer_size > 0) {
+            int64_t copy_count = std::min(buffer_size, *actual_size);
+            for (int64_t i = 0; i < copy_count; ++i) {
+                buffer[i] = (*vec)[i].get();
+            }
+        }
+        return FON_OK;
+    } catch (const std::exception& e) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, e.what());
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+}

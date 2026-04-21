@@ -47,14 +47,18 @@ namespace fon {
         template<typename T>
         static void serialize_array(std::string& out, const std::vector<T>& arr, char type_char);
 
-        static std::pair<FonValue, size_t> parse_value(std::string_view data, char type_char);
+        static FonCollection parse_collection_body(std::string_view line, int depth);
+        static std::pair<FonValue, size_t> parse_value(std::string_view data, char type_char, int depth);
         static std::pair<std::string, size_t> parse_string(std::string_view data);
+        static size_t find_closing_brace(std::string_view data);
+        static std::pair<std::shared_ptr<FonCollection>, size_t> parse_object(std::string_view data, int depth);
+        static std::pair<std::vector<std::shared_ptr<FonCollection>>, size_t> parse_object_array(std::string_view data, int depth);
 
         template<typename T>
         static std::pair<T, size_t> parse_number(std::string_view data);
 
         template<typename T>
-        static std::pair<std::vector<T>, size_t> parse_array(std::string_view data, char type_char);
+        static std::pair<std::vector<T>, size_t> parse_array(std::string_view data, char type_char, int depth);
 
         static char get_type_char(const FonValue& value);
         static size_t find_value_end(std::string_view data);
@@ -408,12 +412,20 @@ namespace fon {
 
 
     inline FonCollection Fon::deserialize_line(std::string_view line) {
+        return parse_collection_body(line, 0);
+    }
+
+
+
+    inline FonCollection Fon::parse_collection_body(std::string_view line, int depth) {
         FonCollection collection;
         size_t pos = 0;
 
         while (pos < line.size()) {
             auto eq_pos = line.find('=', pos);
-            if (eq_pos == std::string_view::npos) break;
+            if (eq_pos == std::string_view::npos) {
+                break;
+            }
 
             std::string key(line.substr(pos, eq_pos - pos));
             pos = eq_pos + 1;
@@ -426,7 +438,7 @@ namespace fon {
             pos += 2;
 
             auto remaining = line.substr(pos);
-            auto [value, consumed] = parse_value(remaining, type_char);
+            auto [value, consumed] = parse_value(remaining, type_char, depth);
 
             collection.add(key, std::move(value));
             pos += consumed;
@@ -441,21 +453,33 @@ namespace fon {
 
 
 
-    inline std::pair<FonValue, size_t> Fon::parse_value(std::string_view data, char type_char) {
+    inline std::pair<FonValue, size_t> Fon::parse_value(std::string_view data, char type_char, int depth) {
         if (data.empty()) {
             throw std::runtime_error("Empty value");
         }
 
+        if (type_char == TYPE_OBJECT) {
+            if (data[0] == '{') {
+                auto [obj, consumed] = parse_object(data, depth + 1);
+                return {std::move(obj), consumed};
+            }
+            if (data[0] == '[') {
+                auto [arr, consumed] = parse_object_array(data, depth + 1);
+                return {std::move(arr), consumed};
+            }
+            throw std::runtime_error("Object must start with '{' or '['");
+        }
+
         if (data[0] == '[') {
             switch (type_char) {
-                case TYPE_BYTE:   { auto [v, c] = parse_array<uint8_t>(data, type_char); return {std::move(v), c}; }
-                case TYPE_SHORT:  { auto [v, c] = parse_array<int16_t>(data, type_char); return {std::move(v), c}; }
-                case TYPE_INT:    { auto [v, c] = parse_array<int32_t>(data, type_char); return {std::move(v), c}; }
-                case TYPE_UINT:   { auto [v, c] = parse_array<uint32_t>(data, type_char); return {std::move(v), c}; }
-                case TYPE_LONG:   { auto [v, c] = parse_array<int64_t>(data, type_char); return {std::move(v), c}; }
-                case TYPE_ULONG:  { auto [v, c] = parse_array<uint64_t>(data, type_char); return {std::move(v), c}; }
-                case TYPE_FLOAT:  { auto [v, c] = parse_array<float>(data, type_char); return {std::move(v), c}; }
-                case TYPE_DOUBLE: { auto [v, c] = parse_array<double>(data, type_char); return {std::move(v), c}; }
+                case TYPE_BYTE:   { auto [v, c] = parse_array<uint8_t>(data, type_char, depth + 1); return {std::move(v), c}; }
+                case TYPE_SHORT:  { auto [v, c] = parse_array<int16_t>(data, type_char, depth + 1); return {std::move(v), c}; }
+                case TYPE_INT:    { auto [v, c] = parse_array<int32_t>(data, type_char, depth + 1); return {std::move(v), c}; }
+                case TYPE_UINT:   { auto [v, c] = parse_array<uint32_t>(data, type_char, depth + 1); return {std::move(v), c}; }
+                case TYPE_LONG:   { auto [v, c] = parse_array<int64_t>(data, type_char, depth + 1); return {std::move(v), c}; }
+                case TYPE_ULONG:  { auto [v, c] = parse_array<uint64_t>(data, type_char, depth + 1); return {std::move(v), c}; }
+                case TYPE_FLOAT:  { auto [v, c] = parse_array<float>(data, type_char, depth + 1); return {std::move(v), c}; }
+                case TYPE_DOUBLE: { auto [v, c] = parse_array<double>(data, type_char, depth + 1); return {std::move(v), c}; }
                 default: throw std::runtime_error("Unsupported array type");
             }
         }
@@ -526,7 +550,9 @@ namespace fon {
 
 
     template<typename T>
-    inline std::pair<std::vector<T>, size_t> Fon::parse_array(std::string_view data, char type_char) {
+    inline std::pair<std::vector<T>, size_t> Fon::parse_array(std::string_view data, char type_char, int depth) {
+        (void)depth;
+        (void)type_char;
         if (data[0] != '[') {
             throw std::runtime_error("Array must start with '['");
         }
@@ -634,6 +660,83 @@ namespace fon {
         }
 
         throw std::runtime_error("Closing bracket not found");
+    }
+
+
+
+    inline size_t Fon::find_closing_brace(std::string_view data) {
+        int depth = 0;
+        bool in_string = false;
+
+        for (size_t i = 0; i < data.size(); ++i) {
+            char c = data[i];
+
+            if (c == '"' && (i == 0 || data[i - 1] != '\\')) {
+                in_string = !in_string;
+            } else if (!in_string) {
+                if (c == '{') {
+                    ++depth;
+                } else if (c == '}') {
+                    --depth;
+                    if (depth == 0) {
+                        return i;
+                    }
+                }
+            }
+        }
+
+        throw std::runtime_error("Closing brace not found");
+    }
+
+
+
+    inline std::pair<std::shared_ptr<FonCollection>, size_t> Fon::parse_object(std::string_view data, int depth) {
+        if (data[0] != '{') {
+            throw std::runtime_error("Object must start with '{'");
+        }
+
+        size_t close = find_closing_brace(data);
+        auto body = data.substr(1, close - 1);
+
+        auto collection = std::make_shared<FonCollection>(parse_collection_body(body, depth));
+
+        size_t consumed = close + 1;
+        if (consumed < data.size() && data[consumed] == ',') {
+            ++consumed;
+        }
+
+        return {std::move(collection), consumed};
+    }
+
+
+
+    inline std::pair<std::vector<std::shared_ptr<FonCollection>>, size_t> Fon::parse_object_array(std::string_view data, int depth) {
+        if (data[0] != '[') {
+            throw std::runtime_error("Object array must start with '['");
+        }
+
+        size_t close = find_closing_bracket(data);
+        auto content = data.substr(1, close - 1);
+
+        std::vector<std::shared_ptr<FonCollection>> result;
+
+        size_t pos = 0;
+        while (pos < content.size()) {
+            auto remaining = content.substr(pos);
+            if (remaining[0] != '{') {
+                throw std::runtime_error("Object array element must start with '{'");
+            }
+            auto [obj, consumed] = parse_object(remaining, depth);
+            result.push_back(std::move(obj));
+            pos += consumed;
+        }
+
+        size_t total_consumed = close + 1;
+        if (total_consumed < data.size() && data[total_consumed] == ',') {
+            ++total_consumed;
+        }
+
+        return {std::move(result), total_consumed};
     }
 
 }

@@ -299,4 +299,35 @@ public static class NativeBindings {
         out long actualSize,
         ref FonError error
     );
+
+
+    /// <summary>
+    /// Gets a borrowed handle to a nested collection under <paramref name="key"/>.
+    /// Ownership: the returned handle is owned by <paramref name="parent"/>. The caller
+    /// MUST NOT call <c>fon_collection_free</c> on it. Returns <see cref="IntPtr.Zero"/>
+    /// if the key is missing or the value is not a nested collection.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern IntPtr fon_collection_get_collection(
+        IntPtr parent,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
+        ref FonError error
+    );
+
+
+    /// <summary>
+    /// Gets borrowed handles for an array of nested collections. Pass <c>buffer=null</c>
+    /// with <c>bufferSize=0</c> to query <paramref name="actualSize"/> only.
+    /// Ownership: every returned handle is owned by <paramref name="parent"/>. The caller
+    /// MUST NOT call <c>fon_collection_free</c> on any of them.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_collection_array(
+        IntPtr parent,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
+        [Out] IntPtr[]? buffer,
+        long bufferSize,
+        out long actualSize,
+        ref FonError error
+    );
 }

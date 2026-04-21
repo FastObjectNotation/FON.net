@@ -161,6 +161,31 @@ extern "C" {
         FonError* error
     );
 
+    /**
+     * Get a borrowed handle to a nested collection. Returns NULL if the key is missing
+     * or the value is not a nested object. The returned handle is owned by the parent;
+     * the caller must not call fon_collection_free on it.
+     */
+    FON_API FonCollectionHandle fon_collection_get_collection(
+        FonCollectionHandle parent,
+        const char* key,
+        FonError* error
+    );
+
+
+    /**
+     * Get an array of borrowed nested-collection handles. Pass buffer=NULL with
+     * buffer_size=0 to query actual_size only. Returns FON_OK on success.
+     */
+    FON_API int32_t fon_collection_get_collection_array(
+        FonCollectionHandle parent,
+        const char* key,
+        FonCollectionHandle* buffer,
+        int64_t buffer_size,
+        int64_t* actual_size,
+        FonError* error
+    );
+
     // ==================== CONFIGURATION ====================
 
     /**
