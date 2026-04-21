@@ -4,6 +4,15 @@ using System.Runtime.CompilerServices;
 namespace FON.Types;
 
 
+/// <summary>
+/// Key-value collection that can hold primitives, strings, RawData, and other
+/// FonCollections (nested objects) or lists of any supported type.
+/// </summary>
+/// <remarks>
+/// Cycles are the caller's responsibility: placing a FonCollection inside
+/// itself (directly or transitively through nested values or lists) is not
+/// detected. Serialization will recurse until the call stack overflows.
+/// </remarks>
 public class FonCollection : IEnumerable<KeyValuePair<string, object>>, IDisposable {
     private ConcurrentDictionary<string, object> Collection = new();
 
@@ -13,8 +22,16 @@ public class FonCollection : IEnumerable<KeyValuePair<string, object>>, IDisposa
     }
 
     public void Dispose() {
-        foreach (var disposable in Collection.Values.OfType<IDisposable>()) {
-            disposable.Dispose();
+        foreach (var value in Collection.Values) {
+            if (value is IDisposable disposable) {
+                disposable.Dispose();
+            } else if (value is System.Collections.IList list) {
+                foreach (var item in list) {
+                    if (item is IDisposable d) {
+                        d.Dispose();
+                    }
+                }
+            }
         }
         Collection.Clear();
     }

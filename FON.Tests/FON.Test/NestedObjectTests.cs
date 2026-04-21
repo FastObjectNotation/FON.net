@@ -328,4 +328,61 @@ public class NestedObjectTests {
             Fon.MaxDepth = original;
         }
     }
+
+
+    private sealed class TrackingDisposable : IDisposable {
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+    }
+
+
+    [Fact]
+    public void Dispose_DisposesNestedFonCollections() {
+        var inner = new FonCollection();
+        var outer = new FonCollection { { "inner", inner } };
+
+        // Add a tracker into inner so we can detect its Dispose
+        var tracker = new TrackingDisposable();
+        inner.Add("tracker", tracker);
+
+        outer.Dispose();
+
+        Assert.True(tracker.Disposed);
+    }
+
+
+    [Fact]
+    public void Dispose_DisposesElementsOfDisposableLists() {
+        var t1 = new TrackingDisposable();
+        var t2 = new TrackingDisposable();
+
+        var collection = new FonCollection {
+            { "items", new List<TrackingDisposable> { t1, t2 } }
+        };
+
+        collection.Dispose();
+
+        Assert.True(t1.Disposed);
+        Assert.True(t2.Disposed);
+    }
+
+
+    [Fact]
+    public void Dispose_DisposesNestedCollectionsInsideLists() {
+        var c1 = new FonCollection();
+        var c2 = new FonCollection();
+        var t1 = new TrackingDisposable();
+        var t2 = new TrackingDisposable();
+        c1.Add("t", t1);
+        c2.Add("t", t2);
+
+        var outer = new FonCollection {
+            { "items", new List<FonCollection> { c1, c2 } }
+        };
+
+        outer.Dispose();
+
+        Assert.True(t1.Disposed);
+        Assert.True(t2.Disposed);
+    }
 }
