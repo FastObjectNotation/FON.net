@@ -20,4 +20,12 @@
 		<ProjectReference Include="..\..\FON.Native.Runtime\FON.Native.Runtime.csproj" />
 	</ItemGroup>
 
+	<Target Name="CopyNativeLib"
+	        AfterTargets="Build"
+	        Condition="Exists('$(MSBuildThisFileDirectory)..\..\build\Release\fon_native.dll')">
+		<Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\build\Release\fon_native.dll"
+		      DestinationFolder="$(OutputPath)"
+		      SkipUnchangedFiles="true" />
+	</Target>
+
 </Project>
