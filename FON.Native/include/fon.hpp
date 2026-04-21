@@ -373,12 +373,29 @@ namespace fon {
         std::vector<size_t> indices(lines.size());
         std::iota(indices.begin(), indices.end(), 0);
 
+        // std::execution::par calls std::terminate if a worker function throws,
+        // so capture the first exception under a mutex and rethrow on this thread.
+        std::exception_ptr first_exception;
+        std::mutex exception_mutex;
+
         std::for_each(std::execution::par, indices.begin(), indices.end(),
             [&](size_t i) {
-                if (!lines[i].empty()) {
+                if (lines[i].empty()) {
+                    return;
+                }
+                try {
                     collections[i] = deserialize_line(lines[i]);
+                } catch (...) {
+                    std::lock_guard<std::mutex> lock(exception_mutex);
+                    if (!first_exception) {
+                        first_exception = std::current_exception();
+                    }
                 }
             });
+
+        if (first_exception) {
+            std::rethrow_exception(first_exception);
+        }
     #else
         std::vector<std::future<void>> futures;
         size_t chunk_size = (lines.size() + max_threads - 1) / max_threads;
