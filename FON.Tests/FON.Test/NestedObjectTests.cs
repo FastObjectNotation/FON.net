@@ -167,4 +167,80 @@ public class NestedObjectTests {
             tempFile.Delete();
         }
     }
+
+
+    [Fact]
+    public void RoundTrip_ArrayOfObjects_HeterogeneousShapes() {
+        var items = new List<FonCollection> {
+            new FonCollection { { "id", 1 }, { "qty", 5 } },
+            new FonCollection { { "id", 2 }, { "qty", 3 } },
+            new FonCollection { { "id", 3 }, { "name", "third" } }
+        };
+        var outer = new FonCollection { { "items", items } };
+
+        var dump = new FonDump();
+        dump.TryAdd(0, outer);
+
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            Fon.SerializeToFileAuto(dump, tempFile);
+            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+
+            var loadedItems = loaded[0].Get<List<FonCollection>>("items");
+            Assert.Equal(3, loadedItems.Count);
+            Assert.Equal(1, loadedItems[0].Get<int>("id"));
+            Assert.Equal(5, loadedItems[0].Get<int>("qty"));
+            Assert.Equal(2, loadedItems[1].Get<int>("id"));
+            Assert.Equal(3, loadedItems[2].Get<int>("id"));
+            Assert.Equal("third", loadedItems[2].Get<string>("name"));
+        } finally {
+            tempFile.Delete();
+        }
+    }
+
+
+    [Fact]
+    public void RoundTrip_EmptyArrayOfObjects() {
+        var outer = new FonCollection { { "items", new List<FonCollection>() } };
+
+        var dump = new FonDump();
+        dump.TryAdd(0, outer);
+
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            Fon.SerializeToFileAuto(dump, tempFile);
+            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+
+            var items = loaded[0].Get<List<FonCollection>>("items");
+            Assert.Empty(items);
+        } finally {
+            tempFile.Delete();
+        }
+    }
+
+
+    [Fact]
+    public void RoundTrip_ObjectInsideArrayInsideObject() {
+        var inner = new FonCollection { { "tag", "leaf" } };
+        var arr = new List<FonCollection> { inner };
+        var middle = new FonCollection { { "list", arr } };
+        var outer = new FonCollection { { "wrap", middle } };
+
+        var dump = new FonDump();
+        dump.TryAdd(0, outer);
+
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            Fon.SerializeToFileAuto(dump, tempFile);
+            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+
+            var loadedTag = loaded[0]
+                .Get<FonCollection>("wrap")
+                .Get<List<FonCollection>>("list")[0]
+                .Get<string>("tag");
+            Assert.Equal("leaf", loadedTag);
+        } finally {
+            tempFile.Delete();
+        }
+    }
 }

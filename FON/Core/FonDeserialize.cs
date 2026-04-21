@@ -395,6 +395,7 @@ public partial class Fon {
             'b' => new List<bool>(),
             's' => new List<string>(),
             'r' => new List<RawData>(),
+            'o' => new List<FonCollection>(),
             _ => (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elementType))!
         };
     }
