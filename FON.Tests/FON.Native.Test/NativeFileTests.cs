@@ -100,4 +100,50 @@ public class NativeFileTests : IDisposable {
 
         NativeBindings.fon_dump_free(loadedDump);
     }
+
+
+    [Fact]
+    public async Task CrossImpl_ManagedWritesNested_NativeReads() {
+        var filePath = Path.Combine(_testDir, "cross-mn.fon");
+        var error = new FonError();
+
+        var inner = new global::FON.Types.FonCollection { { "x", 17 }, { "name", "with}brace,here" } };
+        var arrItems = new List<global::FON.Types.FonCollection> {
+            new global::FON.Types.FonCollection { { "id", 1 } },
+            new global::FON.Types.FonCollection { { "id", 2 } }
+        };
+        var outer = new global::FON.Types.FonCollection {
+            { "wrap", inner },
+            { "items", arrItems }
+        };
+
+        var dump = new global::FON.Types.FonDump();
+        dump.TryAdd(0, outer);
+
+        await global::FON.Core.Fon.SerializeToFileAutoAsync(dump, new FileInfo(filePath));
+
+        var loaded = NativeBindings.fon_deserialize_from_file(filePath, 1, ref error);
+        Assert.NotEqual(IntPtr.Zero, loaded);
+
+        var loadedOuter = NativeBindings.fon_dump_get(loaded, 0);
+        var loadedInner = NativeBindings.fon_collection_get_collection(loadedOuter, "wrap", ref error);
+        NativeBindings.fon_collection_get_int(loadedInner, "x", out var x, ref error);
+        Assert.Equal(17, x);
+
+        var nameBuf = new byte[256];
+        NativeBindings.fon_collection_get_string(loadedInner, "name", nameBuf, nameBuf.LongLength, ref error);
+        Assert.Equal("with}brace,here", System.Text.Encoding.UTF8.GetString(nameBuf).TrimEnd('\0'));
+
+        NativeBindings.fon_collection_get_collection_array(loadedOuter, "items", null, 0, out var size, ref error);
+        Assert.Equal(2, size);
+
+        var buf = new IntPtr[2];
+        NativeBindings.fon_collection_get_collection_array(loadedOuter, "items", buf, 2, out _, ref error);
+        NativeBindings.fon_collection_get_int(buf[0], "id", out var id0, ref error);
+        NativeBindings.fon_collection_get_int(buf[1], "id", out var id1, ref error);
+        Assert.Equal(1, id0);
+        Assert.Equal(2, id1);
+
+        NativeBindings.fon_dump_free(loaded);
+    }
 }
