@@ -146,4 +146,42 @@ public class NativeFileTests : IDisposable {
 
         NativeBindings.fon_dump_free(loaded);
     }
+
+
+    [Fact]
+    public async Task CrossImpl_NativeWritesNested_ManagedReads() {
+        var filePath = Path.Combine(_testDir, "cross-nm.fon");
+        var error = new FonError();
+
+        var dump = NativeBindings.fon_dump_create();
+        var outer = NativeBindings.fon_collection_create();
+        var inner = NativeBindings.fon_collection_create();
+        NativeBindings.fon_collection_add_int(inner, "x", 31, ref error);
+        NativeBindings.fon_collection_add_string(inner, "msg", "}meta,test", ref error);
+        NativeBindings.fon_collection_add_collection(outer, "wrap", inner, ref error);
+
+        var c1 = NativeBindings.fon_collection_create();
+        var c2 = NativeBindings.fon_collection_create();
+        NativeBindings.fon_collection_add_int(c1, "id", 100, ref error);
+        NativeBindings.fon_collection_add_int(c2, "id", 200, ref error);
+        var children = new IntPtr[] { c1, c2 };
+        NativeBindings.fon_collection_add_collection_array(outer, "items", children, 2, ref error);
+
+        NativeBindings.fon_dump_add(dump, 0, outer, ref error);
+        NativeBindings.fon_serialize_to_file(dump, filePath, 1, ref error);
+        NativeBindings.fon_dump_free(dump);
+
+        var loaded = await global::FON.Core.Fon.DeserializeFromFileAutoAsync(new FileInfo(filePath));
+        Assert.Equal(1, loaded.Count);
+
+        var loadedOuter = loaded[0];
+        var loadedInner = loadedOuter.Get<global::FON.Types.FonCollection>("wrap");
+        Assert.Equal(31, loadedInner.Get<int>("x"));
+        Assert.Equal("}meta,test", loadedInner.Get<string>("msg"));
+
+        var loadedItems = loadedOuter.Get<List<global::FON.Types.FonCollection>>("items");
+        Assert.Equal(2, loadedItems.Count);
+        Assert.Equal(100, loadedItems[0].Get<int>("id"));
+        Assert.Equal(200, loadedItems[1].Get<int>("id"));
+    }
 }
