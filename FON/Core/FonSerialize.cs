@@ -16,6 +16,13 @@ public partial class Fon {
     public static int ParallelMethodThreshold { get; set; } = 2000;
 
 
+    /// <summary>
+    /// UTF-8 encoding without BOM. The default Encoding.UTF8 emits a BOM
+    /// which the native parser would otherwise treat as part of the first key.
+    /// </summary>
+    private static readonly UTF8Encoding utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+
 
 
     /// <summary>
@@ -42,7 +49,7 @@ public partial class Fon {
             FileOptions.Asynchronous | FileOptions.SequentialScan
         );
 
-        await using var writer = new StreamWriter(fileStream, Encoding.UTF8, bufferSize: 64 * 1024);
+        await using var writer = new StreamWriter(fileStream, utf8NoBom, bufferSize: 64 * 1024);
 
         foreach (var line in serializedLines) {
             await writer.WriteLineAsync(line);
@@ -74,7 +81,7 @@ public partial class Fon {
             bufferSize: 64 * 1024,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-        await using var writer = new StreamWriter(fileStream, Encoding.UTF8, bufferSize: 64 * 1024);
+        await using var writer = new StreamWriter(fileStream, utf8NoBom, bufferSize: 64 * 1024);
 
         // Semaphore for signaling new ready results
         using var newResultAvailable = new SemaphoreSlim(0);
@@ -123,7 +130,7 @@ public partial class Fon {
             FileOptions.Asynchronous | FileOptions.SequentialScan
         );
 
-        await using var writer = new StreamWriter(fileStream, Encoding.UTF8, bufferSize: 256 * 1024);
+        await using var writer = new StreamWriter(fileStream, utf8NoBom, bufferSize: 256 * 1024);
 
         // Process data in chunks
         for (int chunkStart = 0; chunkStart < orderedItems.Length; chunkStart += chunkSize) {

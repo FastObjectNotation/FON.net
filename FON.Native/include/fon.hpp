@@ -352,7 +352,14 @@ namespace fon {
         lines.reserve(file_size / 1000);
 
         size_t start = 0;
-        for (size_t i = 0; i < content.size(); ++i) {
+        // Skip UTF-8 BOM (EF BB BF) if present so it does not get glued to the first key.
+        if (content.size() >= 3
+            && static_cast<unsigned char>(content[0]) == 0xEF
+            && static_cast<unsigned char>(content[1]) == 0xBB
+            && static_cast<unsigned char>(content[2]) == 0xBF) {
+            start = 3;
+        }
+        for (size_t i = start; i < content.size(); ++i) {
             if (content[i] == '\n' || content[i] == '\r') {
                 if (i > start) {
                     lines.emplace_back(content.data() + start, i - start);
