@@ -209,4 +209,71 @@ public class NativeNestedTests : IDisposable {
         NativeBindings.fon_set_max_depth(64);
         NativeBindings.fon_dump_free(loaded);
     }
+
+
+    [Fact]
+    public void NativeRoundTrip_EmptyObjectArray_ReadsBack() {
+        var filePath = Path.Combine(testDir, "rt-empty-array.fon");
+        var error = new FonError();
+
+        var dump = NativeBindings.fon_dump_create();
+        var outer = NativeBindings.fon_collection_create();
+        NativeBindings.fon_collection_add_collection_array(outer, "items", Array.Empty<IntPtr>(), 0, ref error);
+        NativeBindings.fon_dump_add(dump, 0, outer, ref error);
+        NativeBindings.fon_serialize_to_file(dump, filePath, 1, ref error);
+        NativeBindings.fon_dump_free(dump);
+
+        var loaded = NativeBindings.fon_deserialize_from_file(filePath, 1, ref error);
+        var loadedOuter = NativeBindings.fon_dump_get(loaded, 0);
+        NativeBindings.fon_collection_get_collection_array(loadedOuter, "items", null, 0, out var size, ref error);
+        Assert.Equal(0, size);
+
+        NativeBindings.fon_dump_free(loaded);
+    }
+
+
+    [Fact]
+    public void NativeRoundTrip_NestedStringWithBraces_ReadsBack() {
+        var filePath = Path.Combine(testDir, "rt-meta.fon");
+        var error = new FonError();
+
+        var dump = NativeBindings.fon_dump_create();
+        var outer = NativeBindings.fon_collection_create();
+        var inner = NativeBindings.fon_collection_create();
+        NativeBindings.fon_collection_add_string(inner, "txt", "has}brace,and{open[bracket]", ref error);
+        NativeBindings.fon_collection_add_collection(outer, "wrap", inner, ref error);
+        NativeBindings.fon_dump_add(dump, 0, outer, ref error);
+        NativeBindings.fon_serialize_to_file(dump, filePath, 1, ref error);
+        NativeBindings.fon_dump_free(dump);
+
+        var loaded = NativeBindings.fon_deserialize_from_file(filePath, 1, ref error);
+        var loadedOuter = NativeBindings.fon_dump_get(loaded, 0);
+        var loadedInner = NativeBindings.fon_collection_get_collection(loadedOuter, "wrap", ref error);
+
+        var buffer = new byte[256];
+        NativeBindings.fon_collection_get_string(loadedInner, "txt", buffer, buffer.LongLength, ref error);
+        var got = System.Text.Encoding.UTF8.GetString(buffer).TrimEnd('\0');
+        Assert.Equal("has}brace,and{open[bracket]", got);
+
+        NativeBindings.fon_dump_free(loaded);
+    }
+
+
+    [Fact]
+    public void NativeAdd_ChildHandleInvalidatedAfterAdd() {
+        // Documents the ownership contract from the spec: once add_collection succeeds,
+        // the child handle is owned by the parent. Calling fon_collection_free on it
+        // afterward would be a double-free, so this test demonstrates the correct usage
+        // pattern: do NOT free child after add.
+        var error = new FonError();
+        var parent = NativeBindings.fon_collection_create();
+        var child = NativeBindings.fon_collection_create();
+        NativeBindings.fon_collection_add_int(child, "x", 1, ref error);
+
+        var rc = NativeBindings.fon_collection_add_collection(parent, "c", child, ref error);
+        Assert.Equal(FonResultCode.OK, rc);
+
+        // child is now invalidated — only free the parent.
+        NativeBindings.fon_collection_free(parent);
+    }
 }
