@@ -11,7 +11,7 @@ public partial class Fon {
 
     /// <summary>
     /// Maximum number of nested brackets ({} or []) the parser will accept
-    /// before throwing FormatException. Must be at least 1. Default: 64.
+    /// before rejecting input. Must be at least 1. Default: 64.
     /// </summary>
     public static int MaxDepth {
         get => maxDepth;
