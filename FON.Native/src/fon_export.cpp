@@ -224,6 +224,37 @@ FON_API int32_t fon_collection_add_int_array(FonCollectionHandle collection, con
 }
 
 
+FON_API int32_t fon_collection_add_collection(FonCollectionHandle parent, const char* key, FonCollectionHandle child, FonError* error) {
+    if (!parent || !key || !child) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+
+    auto* p = static_cast<fon::FonCollection*>(parent);
+    auto* c = static_cast<fon::FonCollection*>(child);
+    p->add(key, std::shared_ptr<fon::FonCollection>(c));
+    return FON_OK;
+}
+
+
+FON_API int32_t fon_collection_add_collection_array(FonCollectionHandle parent, const char* key, const FonCollectionHandle* children, int64_t count, FonError* error) {
+    if (!parent || !key || (count > 0 && !children) || count < 0) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+
+    auto* p = static_cast<fon::FonCollection*>(parent);
+    std::vector<std::shared_ptr<fon::FonCollection>> vec;
+    vec.reserve(static_cast<size_t>(count));
+    for (int64_t i = 0; i < count; ++i) {
+        auto* c = static_cast<fon::FonCollection*>(children[i]);
+        vec.emplace_back(c);
+    }
+    p->add(key, std::move(vec));
+    return FON_OK;
+}
+
+
 FON_API int32_t fon_collection_add_float_array(FonCollectionHandle collection, const char* key, const float* values, int64_t count, FonError* error) {
     if (!collection || !key || !values || count < 0) {
         set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");

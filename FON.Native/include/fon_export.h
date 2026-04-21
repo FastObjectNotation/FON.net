@@ -135,6 +135,32 @@ extern "C" {
     FON_API int32_t fon_collection_get_int_array(FonCollectionHandle collection, const char* key, int32_t* buffer, int64_t buffer_size, int64_t* actual_size, FonError* error);
     FON_API int32_t fon_collection_get_float_array(FonCollectionHandle collection, const char* key, float* buffer, int64_t buffer_size, int64_t* actual_size, FonError* error);
 
+    /**
+     * Add a nested collection to a parent collection.
+     * Ownership: parent takes ownership of child. After this call, the child handle
+     * is invalidated; the caller must not use it again or call fon_collection_free on it.
+     */
+    FON_API int32_t fon_collection_add_collection(
+        FonCollectionHandle parent,
+        const char* key,
+        FonCollectionHandle child,
+        FonError* error
+    );
+
+
+    /**
+     * Add an array of nested collections to a parent collection.
+     * Ownership: parent takes ownership of every handle in the array. All children
+     * handles are invalidated after the call.
+     */
+    FON_API int32_t fon_collection_add_collection_array(
+        FonCollectionHandle parent,
+        const char* key,
+        const FonCollectionHandle* children,
+        int64_t count,
+        FonError* error
+    );
+
     // ==================== CONFIGURATION ====================
 
     /**

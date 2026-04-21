@@ -37,6 +37,7 @@ namespace fon {
         static FonCollection deserialize_line(std::string_view line);
 
     private:
+        static void serialize_body(std::string& out, const FonCollection& collection);
         static void serialize_value(std::string& out, const FonValue& value);
         static void serialize_string(std::string& out, std::string_view str);
 
@@ -126,20 +127,25 @@ namespace fon {
     inline std::string Fon::serialize_to_string(const FonCollection& collection) {
         std::string result;
         result.reserve(4096);
+        serialize_body(result, collection);
+        return result;
+    }
 
+
+
+    inline void Fon::serialize_body(std::string& out, const FonCollection& collection) {
         bool first = true;
         for (const auto& [key, value] : collection) {
-            if (!first) result += ',';
+            if (!first) {
+                out += ',';
+            }
             first = false;
-
-            result += key;
-            result += '=';
-            result += get_type_char(value);
-            result += ':';
-            serialize_value(result, value);
+            out += key;
+            out += '=';
+            out += get_type_char(value);
+            out += ':';
+            serialize_value(out, value);
         }
-
-        return result;
     }
 
 
@@ -206,6 +212,27 @@ namespace fon {
                 for (size_t i = 0; i < v.size(); ++i) {
                     if (i > 0) out += ',';
                     serialize_string(out, v[i]);
+                }
+                out += ']';
+            }
+            else if constexpr (std::is_same_v<T, std::shared_ptr<FonCollection>>) {
+                out += '{';
+                if (v) {
+                    serialize_body(out, *v);
+                }
+                out += '}';
+            }
+            else if constexpr (std::is_same_v<T, std::vector<std::shared_ptr<FonCollection>>>) {
+                out += '[';
+                for (size_t i = 0; i < v.size(); ++i) {
+                    if (i > 0) {
+                        out += ',';
+                    }
+                    out += '{';
+                    if (v[i]) {
+                        serialize_body(out, *v[i]);
+                    }
+                    out += '}';
                 }
                 out += ']';
             }
@@ -285,6 +312,8 @@ namespace fon {
             else if constexpr (std::is_same_v<T, std::vector<uint64_t>>) return TYPE_ULONG;
             else if constexpr (std::is_same_v<T, std::vector<bool>>) return TYPE_BOOL;
             else if constexpr (std::is_same_v<T, std::vector<std::string>>) return TYPE_STRING;
+            else if constexpr (std::is_same_v<T, std::shared_ptr<FonCollection>>) return TYPE_OBJECT;
+            else if constexpr (std::is_same_v<T, std::vector<std::shared_ptr<FonCollection>>>) return TYPE_OBJECT;
             else return '?';
         }, value);
     }

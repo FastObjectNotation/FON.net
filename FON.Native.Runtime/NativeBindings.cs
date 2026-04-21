@@ -181,6 +181,25 @@ public static class NativeBindings {
 
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_collection(
+        IntPtr parent,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
+        IntPtr child,
+        ref FonError error
+    );
+
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_collection_array(
+        IntPtr parent,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
+        IntPtr[] children,
+        long count,
+        ref FonError error
+    );
+
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     public static extern int fon_collection_add_float_array(
         IntPtr collection,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
