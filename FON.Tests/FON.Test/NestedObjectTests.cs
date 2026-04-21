@@ -83,4 +83,88 @@ public class NestedObjectTests {
 
         Assert.Equal("empty=o:{}", text);
     }
+
+
+    [Fact]
+    public void Deserialize_NestedObject_RoundTrips() {
+        var inner = new FonCollection { { "x", 1 } };
+        var outer = new FonCollection { { "inner", inner } };
+
+        var text = Fon.SerializeToString(outer);
+        var dump = new FonDump();
+        dump.TryAdd(0, outer);
+
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            Fon.SerializeToFileAuto(dump, tempFile);
+            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+
+            Assert.Equal(1, loaded.Count);
+            var loadedOuter = loaded[0];
+            var loadedInner = loadedOuter.Get<FonCollection>("inner");
+            Assert.Equal(1, loadedInner.Get<int>("x"));
+        } finally {
+            tempFile.Delete();
+        }
+    }
+
+
+    [Fact]
+    public void Deserialize_ThreeLevelNested_RoundTrips() {
+        var l3 = new FonCollection { { "v", 42 } };
+        var l2 = new FonCollection { { "l3", l3 } };
+        var l1 = new FonCollection { { "l2", l2 } };
+        var l0 = new FonCollection { { "l1", l1 } };
+
+        var dump = new FonDump();
+        dump.TryAdd(0, l0);
+
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            Fon.SerializeToFileAuto(dump, tempFile);
+            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+
+            var got = loaded[0]
+                .Get<FonCollection>("l1")
+                .Get<FonCollection>("l2")
+                .Get<FonCollection>("l3")
+                .Get<int>("v");
+            Assert.Equal(42, got);
+        } finally {
+            tempFile.Delete();
+        }
+    }
+
+
+    [Fact]
+    public void Deserialize_EmptyNestedObject_RoundTrips() {
+        var outer = new FonCollection { { "empty", new FonCollection() } };
+
+        var dump = new FonDump();
+        dump.TryAdd(0, outer);
+
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            Fon.SerializeToFileAuto(dump, tempFile);
+            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+
+            var inner = loaded[0].Get<FonCollection>("empty");
+            Assert.Equal(0, inner.Count());
+        } finally {
+            tempFile.Delete();
+        }
+    }
+
+
+    [Fact]
+    public async Task Deserialize_NestedObject_NotFollowedByBrace_Throws() {
+        var tempFile = new FileInfo(Path.GetTempFileName());
+        try {
+            File.WriteAllText(tempFile.FullName, "x=o:42\n");
+            var ex = await Assert.ThrowsAsync<AggregateException>(() => Fon.DeserializeFromFileAutoAsync(tempFile));
+            Assert.IsType<FormatException>(ex.InnerException);
+        } finally {
+            tempFile.Delete();
+        }
+    }
 }

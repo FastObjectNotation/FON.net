@@ -146,13 +146,20 @@ public partial class Fon {
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static FonCollection DeserializeLineOptimized(ReadOnlySpan<char> chars) {
+        return ParseCollectionBody(chars, 0);
+    }
+
+
+
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static FonCollection ParseCollectionBody(ReadOnlySpan<char> chars, int depth) {
         var fonList = new FonCollection();
         int position = 0;
 
         while (position < chars.Length) {
             var remaining = chars.Slice(position);
 
-            // Search for '=' using SIMD-optimized IndexOf
             var eqIndex = remaining.IndexOf('=');
             if (eqIndex < 0) {
                 break;
@@ -162,7 +169,6 @@ public partial class Fon {
             position += eqIndex + 1;
             remaining = chars.Slice(position);
 
-            // Data type (1 char + ':')
             if (remaining.Length < 2 || remaining[1] != ':') {
                 throw new FormatException($"Invalid format at position {position}");
             }
@@ -176,20 +182,18 @@ public partial class Fon {
             position += 2;
             remaining = chars.Slice(position);
 
-            // Parse value
             object data;
             int consumed;
 
             if (remaining.Length > 0 && remaining[0] == '[') {
-                (data, consumed) = DeserializeArrayOptimized(remaining, type, typeChar);
+                (data, consumed) = DeserializeArrayOptimized(remaining, type, typeChar, depth + 1);
             } else {
-                (data, consumed) = DeserializeValueOptimized(remaining, type, typeChar);
+                (data, consumed) = DeserializeValueOptimized(remaining, type, typeChar, depth);
             }
 
             fonList.Add(key, data);
             position += consumed;
 
-            // Skip separator ','
             if (position < chars.Length && chars[position] == ',') {
                 position++;
             }
@@ -202,7 +206,15 @@ public partial class Fon {
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static (object data, int consumed) DeserializeValueOptimized(ReadOnlySpan<char> chars, Type type, char typeChar) {
+    private static (object data, int consumed) DeserializeValueOptimized(ReadOnlySpan<char> chars, Type type, char typeChar, int depth) {
+        if (typeChar == 'o') {
+            if (chars.Length == 0 || chars[0] != '{') {
+                throw new FormatException("Object must start with '{'");
+            }
+            var (obj, consumed) = DeserializeObjectOptimized(chars, depth + 1);
+            return (obj, consumed);
+        }
+
         if (typeChar == 's') {
             return DeserializeStringOptimized(chars);
         }
@@ -211,15 +223,13 @@ public partial class Fon {
             return DeserializeRawOptimized(chars);
         }
 
-        // Find end of value
         var endIndex = FindValueEnd(chars);
         var valueSpan = chars.Slice(0, endIndex);
-        var consumed = endIndex;
+        var consumed2 = endIndex;
 
-        // Skip ',' or ']' after value
-        if (consumed < chars.Length && (chars[consumed] == ',' || chars[consumed] == ']')) {
-            if (chars[consumed] == ',') {
-                consumed++;
+        if (consumed2 < chars.Length && (chars[consumed2] == ',' || chars[consumed2] == ']')) {
+            if (chars[consumed2] == ',') {
+                consumed2++;
             }
         }
 
@@ -236,7 +246,7 @@ public partial class Fon {
             _ => throw new NotSupportedException($"Type '{typeChar}' is not supported")
         };
 
-        return (value, consumed);
+        return (value, consumed2);
     }
 
 
@@ -256,16 +266,14 @@ public partial class Fon {
 
 
 
-    private static (IList data, int consumed) DeserializeArrayOptimized(ReadOnlySpan<char> chars, Type elementType, char typeChar) {
+    private static (IList data, int consumed) DeserializeArrayOptimized(ReadOnlySpan<char> chars, Type elementType, char typeChar, int depth) {
         if (chars[0] != '[') {
             throw new FormatException("Array must start with '['");
         }
 
-        // Find closing bracket
         var closeIndex = FindClosingBracket(chars);
         var arrayContent = chars.Slice(1, closeIndex - 1);
 
-        // Create typed list
         var list = CreateTypedList(elementType, typeChar);
 
         if (arrayContent.Length == 0) {
@@ -273,15 +281,13 @@ public partial class Fon {
             if (consumed < chars.Length && chars[consumed] == ',') {
                 consumed++;
             }
-
             return (list, consumed);
         }
 
-        // Parse elements
         int position = 0;
         while (position < arrayContent.Length) {
             var remaining = arrayContent.Slice(position);
-            var (value, valueConsumed) = DeserializeValueOptimized(remaining, elementType, typeChar);
+            var (value, valueConsumed) = DeserializeValueOptimized(remaining, elementType, typeChar, depth);
             list.Add(value);
             position += valueConsumed;
         }
@@ -320,6 +326,55 @@ public partial class Fon {
         }
 
         throw new FormatException("Closing bracket not found");
+    }
+
+
+
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int FindClosingBrace(ReadOnlySpan<char> chars) {
+        int depth = 0;
+        bool inString = false;
+
+        for (int i = 0; i < chars.Length; i++) {
+            var c = chars[i];
+
+            if (c == '"' && (i == 0 || chars[i - 1] != '\\')) {
+                inString = !inString;
+            } else if (!inString) {
+                if (c == '{') {
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        return i;
+                    }
+                }
+            }
+        }
+
+        throw new FormatException("Closing brace not found");
+    }
+
+
+
+
+    private static (FonCollection data, int consumed) DeserializeObjectOptimized(ReadOnlySpan<char> chars, int depth) {
+        if (chars[0] != '{') {
+            throw new FormatException("Object must start with '{'");
+        }
+
+        var closeIndex = FindClosingBrace(chars);
+        var body = chars.Slice(1, closeIndex - 1);
+
+        var collection = ParseCollectionBody(body, depth);
+
+        var consumed = closeIndex + 1;
+        if (consumed < chars.Length && chars[consumed] == ',') {
+            consumed++;
+        }
+
+        return (collection, consumed);
     }
 
 
