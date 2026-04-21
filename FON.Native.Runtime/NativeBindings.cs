@@ -180,6 +180,12 @@ public static class NativeBindings {
     );
 
 
+    /// <summary>
+    /// Adds a nested collection under <paramref name="key"/> inside <paramref name="parent"/>.
+    /// Ownership transfer: after a successful call, <paramref name="child"/> is owned by
+    /// <paramref name="parent"/>. The caller MUST NOT use the child handle again and MUST NOT
+    /// call <c>fon_collection_free</c> on it; doing so causes a double-free.
+    /// </summary>
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     public static extern int fon_collection_add_collection(
         IntPtr parent,
@@ -189,6 +195,12 @@ public static class NativeBindings {
     );
 
 
+    /// <summary>
+    /// Adds an array of nested collections under <paramref name="key"/> inside <paramref name="parent"/>.
+    /// Ownership transfer: after a successful call, every handle in <paramref name="children"/> is
+    /// owned by <paramref name="parent"/>. The caller MUST NOT use any child handle again and MUST NOT
+    /// call <c>fon_collection_free</c> on any of them; doing so causes a double-free.
+    /// </summary>
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     public static extern int fon_collection_add_collection_array(
         IntPtr parent,
