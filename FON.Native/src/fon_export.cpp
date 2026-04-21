@@ -27,6 +27,14 @@ FON_API void fon_set_raw_unpack(int32_t enable) {
 }
 
 
+FON_API void fon_set_max_depth(int32_t depth) {
+    if (depth < 1) {
+        depth = 1;
+    }
+    fon::Fon::max_depth = depth;
+}
+
+
 
 // ==================== MEMORY MANAGEMENT ====================
 

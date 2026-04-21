@@ -691,6 +691,9 @@ namespace fon {
 
 
     inline std::pair<std::shared_ptr<FonCollection>, size_t> Fon::parse_object(std::string_view data, int depth) {
+        if (depth > max_depth) {
+            throw std::runtime_error("Maximum nesting depth exceeded");
+        }
         if (data[0] != '{') {
             throw std::runtime_error("Object must start with '{'");
         }
@@ -711,6 +714,9 @@ namespace fon {
 
 
     inline std::pair<std::vector<std::shared_ptr<FonCollection>>, size_t> Fon::parse_object_array(std::string_view data, int depth) {
+        if (depth > max_depth) {
+            throw std::runtime_error("Maximum nesting depth exceeded");
+        }
         if (data[0] != '[') {
             throw std::runtime_error("Object array must start with '['");
         }

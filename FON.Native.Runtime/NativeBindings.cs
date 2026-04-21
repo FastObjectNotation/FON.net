@@ -49,6 +49,9 @@ public static class NativeBindings {
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void fon_set_raw_unpack(int enable);
 
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void fon_set_max_depth(int depth);
+
 
 
     // ==================== MEMORY MANAGEMENT ====================

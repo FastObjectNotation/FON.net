@@ -194,6 +194,12 @@ extern "C" {
     FON_API void fon_set_raw_unpack(int32_t enable);
 
     /**
+     * Set the maximum nesting depth for the parser. Values less than 1 are
+     * silently clamped to 1. Default: 64.
+     */
+    FON_API void fon_set_max_depth(int32_t depth);
+
+    /**
      * Get version info
      */
     FON_API const char* fon_version(void);

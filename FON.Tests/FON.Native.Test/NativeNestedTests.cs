@@ -155,4 +155,58 @@ public class NativeNestedTests : IDisposable {
 
         NativeBindings.fon_dump_free(loaded);
     }
+
+
+    [Fact]
+    public void NativeMaxDepth_BeyondLimit_ParseFails() {
+        var filePath = Path.Combine(testDir, "deep.fon");
+        var error = new FonError();
+
+        // Build a depth-3 nested object as raw text.
+        File.WriteAllText(filePath, "a=o:{b=o:{c=o:{d=i:1}}}\n");
+
+        NativeBindings.fon_set_max_depth(2);
+
+        var loaded = NativeBindings.fon_deserialize_from_file(filePath, 1, ref error);
+        Assert.Equal(IntPtr.Zero, loaded);
+        Assert.Equal(FonResultCode.ParseFailed, error.Code);
+
+        // Reset for other tests
+        NativeBindings.fon_set_max_depth(64);
+    }
+
+
+    [Fact]
+    public void NativeMaxDepth_AtLimit_Succeeds() {
+        var filePath = Path.Combine(testDir, "atlimit.fon");
+        var error = new FonError();
+
+        File.WriteAllText(filePath, "a=o:{b=o:{c=i:1}}\n");
+
+        NativeBindings.fon_set_max_depth(2);
+
+        var loaded = NativeBindings.fon_deserialize_from_file(filePath, 1, ref error);
+        Assert.NotEqual(IntPtr.Zero, loaded);
+
+        NativeBindings.fon_set_max_depth(64);
+        NativeBindings.fon_dump_free(loaded);
+    }
+
+
+    [Fact]
+    public void NativeMaxDepth_NegativeValue_ClampedToOne() {
+        var filePath = Path.Combine(testDir, "clamp.fon");
+        var error = new FonError();
+
+        File.WriteAllText(filePath, "a=o:{x=i:1}\n");
+
+        NativeBindings.fon_set_max_depth(-5);
+
+        // depth=1 is at the clamped limit; should still parse
+        var loaded = NativeBindings.fon_deserialize_from_file(filePath, 1, ref error);
+        Assert.NotEqual(IntPtr.Zero, loaded);
+
+        NativeBindings.fon_set_max_depth(64);
+        NativeBindings.fon_dump_free(loaded);
+    }
 }
