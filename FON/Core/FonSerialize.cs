@@ -189,7 +189,14 @@ public partial class Fon {
     public static string SerializeToString(FonCollection fonCollection) {
         // Preliminary size estimation (approximately 100 bytes per element + data)
         var sb = new StringBuilder(fonCollection.Count() * 200);
+        SerializeBody(sb, fonCollection);
+        return sb.ToString();
+    }
 
+
+
+
+    private static void SerializeBody(StringBuilder sb, FonCollection fonCollection) {
         bool isFirst = true;
         foreach (var kvp in fonCollection) {
             if (isFirst) {
@@ -200,8 +207,6 @@ public partial class Fon {
 
             SerializeKeyValue(sb, kvp.Key, kvp.Value);
         }
-
-        return sb.ToString();
     }
 
 
@@ -323,6 +328,12 @@ public partial class Fon {
 
             case 'r':
                 SerializeRaw(sb, (RawData)value);
+            break;
+
+            case 'o':
+                sb.Append('{');
+                SerializeBody(sb, (FonCollection)value);
+                sb.Append('}');
             break;
 
             default:

@@ -50,4 +50,37 @@ public class NestedObjectTests {
         Assert.True(Fon.SupportTypes.ContainsKey(typeof(FonCollection)));
         Assert.Equal('o', Fon.SupportTypes[typeof(FonCollection)]);
     }
+
+
+    [Fact]
+    public void Serialize_NestedObject_ProducesObjectLiteral() {
+        var inner = new FonCollection { { "x", 1 } };
+        var outer = new FonCollection { { "inner", inner } };
+
+        var text = Fon.SerializeToString(outer);
+
+        Assert.Equal("inner=o:{x=i:1}", text);
+    }
+
+
+    [Fact]
+    public void Serialize_TwoLevelNested_ProducesNestedLiteral() {
+        var deepest = new FonCollection { { "v", 99 } };
+        var middle = new FonCollection { { "deep", deepest } };
+        var outer = new FonCollection { { "mid", middle } };
+
+        var text = Fon.SerializeToString(outer);
+
+        Assert.Equal("mid=o:{deep=o:{v=i:99}}", text);
+    }
+
+
+    [Fact]
+    public void Serialize_EmptyNestedObject_ProducesEmptyBraces() {
+        var outer = new FonCollection { { "empty", new FonCollection() } };
+
+        var text = Fon.SerializeToString(outer);
+
+        Assert.Equal("empty=o:{}", text);
+    }
 }
