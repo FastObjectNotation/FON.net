@@ -267,6 +267,10 @@ public partial class Fon {
 
 
     private static (IList data, int consumed) DeserializeArrayOptimized(ReadOnlySpan<char> chars, Type elementType, char typeChar, int depth) {
+        if (depth > Fon.MaxDepth) {
+            throw new FormatException($"Maximum nesting depth exceeded ({Fon.MaxDepth})");
+        }
+
         if (chars[0] != '[') {
             throw new FormatException("Array must start with '['");
         }
@@ -360,6 +364,10 @@ public partial class Fon {
 
 
     private static (FonCollection data, int consumed) DeserializeObjectOptimized(ReadOnlySpan<char> chars, int depth) {
+        if (depth > Fon.MaxDepth) {
+            throw new FormatException($"Maximum nesting depth exceeded ({Fon.MaxDepth})");
+        }
+
         if (chars[0] != '{') {
             throw new FormatException("Object must start with '{'");
         }

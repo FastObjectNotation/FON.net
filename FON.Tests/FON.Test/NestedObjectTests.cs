@@ -243,4 +243,89 @@ public class NestedObjectTests {
             tempFile.Delete();
         }
     }
+
+
+    private static FonCollection BuildNested(int depth) {
+        var current = new FonCollection { { "leaf", 1 } };
+        for (int i = 0; i < depth; i++) {
+            var wrap = new FonCollection { { "n", current } };
+            current = wrap;
+        }
+        return current;
+    }
+
+
+    [Fact]
+    public void Deserialize_AtExactlyMaxDepth_Succeeds() {
+        var original = Fon.MaxDepth;
+        try {
+            Fon.MaxDepth = 5;
+            var nested = BuildNested(5);
+            var dump = new FonDump();
+            dump.TryAdd(0, nested);
+
+            var tempFile = new FileInfo(Path.GetTempFileName());
+            try {
+                Fon.SerializeToFileAuto(dump, tempFile);
+                var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+                Assert.Equal(1, loaded.Count);
+            } finally {
+                tempFile.Delete();
+            }
+        } finally {
+            Fon.MaxDepth = original;
+        }
+    }
+
+
+    [Fact]
+    public async Task Deserialize_AboveMaxDepth_Throws() {
+        var original = Fon.MaxDepth;
+        try {
+            Fon.MaxDepth = 5;
+            var nested = BuildNested(6);
+            var dump = new FonDump();
+            dump.TryAdd(0, nested);
+
+            var tempFile = new FileInfo(Path.GetTempFileName());
+            try {
+                Fon.SerializeToFileAuto(dump, tempFile);
+                var ex = await Assert.ThrowsAsync<AggregateException>(
+                    () => Fon.DeserializeFromFileAutoAsync(tempFile)
+                );
+                Assert.IsType<FormatException>(ex.InnerException);
+            } finally {
+                tempFile.Delete();
+            }
+        } finally {
+            Fon.MaxDepth = original;
+        }
+    }
+
+
+    [Fact]
+    public async Task Deserialize_DeepArray_AboveMaxDepth_Throws() {
+        var original = Fon.MaxDepth;
+        try {
+            Fon.MaxDepth = 2;
+            var tempFile = new FileInfo(Path.GetTempFileName());
+            try {
+                // Depth-1 array: should still succeed at MaxDepth=2
+                File.WriteAllText(tempFile.FullName, "a=i:[1,2,3]\n");
+                var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+                Assert.Equal(1, loaded.Count);
+
+                // Depth-3 construction: array of objects each containing an array. Must throw.
+                File.WriteAllText(tempFile.FullName, "items=o:[{vals=i:[1,2]}]\n");
+                var ex = await Assert.ThrowsAsync<AggregateException>(
+                    () => Fon.DeserializeFromFileAutoAsync(tempFile)
+                );
+                Assert.IsType<FormatException>(ex.InnerException);
+            } finally {
+                tempFile.Delete();
+            }
+        } finally {
+            Fon.MaxDepth = original;
+        }
+    }
 }
