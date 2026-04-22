@@ -1,0 +1,442 @@
+use std::fs;
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+
+use rayon::prelude::*;
+
+use crate::error::FonNativeError;
+use crate::raw_data::RawData;
+use crate::types::{
+    FonCollection, FonDump, FonValue, TYPE_BOOL, TYPE_BYTE, TYPE_DOUBLE, TYPE_FLOAT, TYPE_INT,
+    TYPE_LONG, TYPE_OBJECT, TYPE_RAW, TYPE_SHORT, TYPE_STRING, TYPE_UINT, TYPE_ULONG,
+};
+
+
+pub static DESERIALIZE_RAW_UNPACK: AtomicBool = AtomicBool::new(false);
+pub static MAX_DEPTH: AtomicI32 = AtomicI32::new(64);
+
+
+pub fn deserialize_from_file(
+    path: &Path,
+    _max_threads: i32,
+) -> Result<FonDump, FonNativeError> {
+    let content = fs::read(path)
+        .map_err(|e| FonNativeError::Parse(format!("Failed to open file: {}", e)))?;
+
+    let lines = split_lines(&content);
+
+    let max_depth = MAX_DEPTH.load(Ordering::Relaxed);
+
+    let collections: Vec<Result<FonCollection, FonNativeError>> = lines
+        .par_iter()
+        .map(|line| {
+            if line.is_empty() {
+                Ok(FonCollection::new())
+            } else {
+                deserialize_line(line, max_depth)
+            }
+        })
+        .collect();
+
+    let mut dump = FonDump::with_capacity(lines.len());
+    for (i, c) in collections.into_iter().enumerate() {
+        let c = c?;
+        if c.len() > 0 {
+            dump.add(i as u64, c);
+        }
+    }
+    Ok(dump)
+}
+
+
+pub fn deserialize_line(line: &[u8], max_depth: i32) -> Result<FonCollection, FonNativeError> {
+    parse_collection_body(line, 0, max_depth)
+}
+
+
+fn split_lines(content: &[u8]) -> Vec<&[u8]> {
+    let mut lines: Vec<&[u8]> = Vec::with_capacity((content.len() / 1000).max(1));
+    let mut start = 0;
+
+    // Skip UTF-8 BOM (EF BB BF) so it doesn't get glued onto the first key.
+    if content.len() >= 3 && content[0] == 0xEF && content[1] == 0xBB && content[2] == 0xBF {
+        start = 3;
+    }
+
+    let mut i = start;
+    while i < content.len() {
+        let c = content[i];
+        if c == b'\n' || c == b'\r' {
+            if i > start {
+                lines.push(&content[start..i]);
+            }
+            if c == b'\r' && i + 1 < content.len() && content[i + 1] == b'\n' {
+                i += 1;
+            }
+            start = i + 1;
+        }
+        i += 1;
+    }
+    if start < content.len() {
+        lines.push(&content[start..]);
+    }
+    lines
+}
+
+
+fn parse_collection_body(
+    line: &[u8],
+    depth: i32,
+    max_depth: i32,
+) -> Result<FonCollection, FonNativeError> {
+    let mut collection = FonCollection::new();
+    let mut pos = 0;
+
+    while pos < line.len() {
+        let eq_pos = match find_byte(&line[pos..], b'=') {
+            Some(p) => pos + p,
+            None => break,
+        };
+
+        let key = std::str::from_utf8(&line[pos..eq_pos])
+            .map_err(|_| FonNativeError::Parse("Invalid UTF-8 in key".into()))?
+            .to_owned();
+        pos = eq_pos + 1;
+
+        if pos >= line.len() || pos + 1 >= line.len() || line[pos + 1] != b':' {
+            return Err(FonNativeError::Parse(
+                "Invalid format: expected type:value".into(),
+            ));
+        }
+
+        let type_char = line[pos];
+        pos += 2;
+
+        let remaining = &line[pos..];
+        let (value, consumed) = parse_value(remaining, type_char, depth, max_depth)?;
+        collection.add(key, value);
+        pos += consumed;
+
+        if pos < line.len() && line[pos] == b',' {
+            pos += 1;
+        }
+    }
+
+    Ok(collection)
+}
+
+
+fn parse_value(
+    data: &[u8],
+    type_char: u8,
+    depth: i32,
+    max_depth: i32,
+) -> Result<(FonValue, usize), FonNativeError> {
+    if data.is_empty() {
+        return Err(FonNativeError::Parse("Empty value".into()));
+    }
+
+    if type_char == TYPE_OBJECT {
+        if data[0] == b'{' {
+            let (obj, consumed) = parse_object(data, depth + 1, max_depth)?;
+            return Ok((FonValue::Object(obj), consumed));
+        }
+        if data[0] == b'[' {
+            let (arr, consumed) = parse_object_array(data, depth + 1, max_depth)?;
+            return Ok((FonValue::ObjectArray(arr), consumed));
+        }
+        return Err(FonNativeError::Parse(
+            "Object must start with '{' or '['".into(),
+        ));
+    }
+
+    if data[0] == b'[' {
+        return match type_char {
+            TYPE_BYTE => parse_number_array::<u8>(data).map(|(v, c)| (FonValue::ByteArray(v), c)),
+            TYPE_SHORT => {
+                parse_number_array::<i16>(data).map(|(v, c)| (FonValue::ShortArray(v), c))
+            }
+            TYPE_INT => parse_number_array::<i32>(data).map(|(v, c)| (FonValue::IntArray(v), c)),
+            TYPE_UINT => {
+                parse_number_array::<u32>(data).map(|(v, c)| (FonValue::UIntArray(v), c))
+            }
+            TYPE_LONG => {
+                parse_number_array::<i64>(data).map(|(v, c)| (FonValue::LongArray(v), c))
+            }
+            TYPE_ULONG => {
+                parse_number_array::<u64>(data).map(|(v, c)| (FonValue::ULongArray(v), c))
+            }
+            TYPE_FLOAT => {
+                parse_number_array::<f32>(data).map(|(v, c)| (FonValue::FloatArray(v), c))
+            }
+            TYPE_DOUBLE => {
+                parse_number_array::<f64>(data).map(|(v, c)| (FonValue::DoubleArray(v), c))
+            }
+            _ => Err(FonNativeError::Parse("Unsupported array type".into())),
+        };
+    }
+
+    if type_char == TYPE_STRING {
+        let (s, consumed) = parse_string(data)?;
+        return Ok((FonValue::String(s), consumed));
+    }
+
+    if type_char == TYPE_RAW {
+        let (s, consumed) = parse_string(data)?;
+        let mut raw = RawData::from_encoded(s);
+        if DESERIALIZE_RAW_UNPACK.load(Ordering::Relaxed) {
+            raw.unpack()?;
+        }
+        return Ok((FonValue::Raw(Box::new(raw)), consumed));
+    }
+
+    let end = find_value_end(data);
+    let value_str = std::str::from_utf8(&data[..end])
+        .map_err(|_| FonNativeError::Parse("Invalid UTF-8 in number".into()))?;
+    let mut consumed = end;
+    if consumed < data.len() && data[consumed] == b',' {
+        consumed += 1;
+    }
+
+    let value = match type_char {
+        TYPE_BYTE => FonValue::Byte(parse_num::<u8>(value_str)?),
+        TYPE_SHORT => FonValue::Short(parse_num::<i16>(value_str)?),
+        TYPE_INT => FonValue::Int(parse_num::<i32>(value_str)?),
+        TYPE_UINT => FonValue::UInt(parse_num::<u32>(value_str)?),
+        TYPE_LONG => FonValue::Long(parse_num::<i64>(value_str)?),
+        TYPE_ULONG => FonValue::ULong(parse_num::<u64>(value_str)?),
+        TYPE_FLOAT => FonValue::Float(parse_num::<f32>(value_str)?),
+        TYPE_DOUBLE => FonValue::Double(parse_num::<f64>(value_str)?),
+        TYPE_BOOL => FonValue::Bool(data[0] != b'0'),
+        _ => return Err(FonNativeError::Parse("Unknown type".into())),
+    };
+
+    Ok((value, consumed))
+}
+
+
+fn parse_num<T: FromStr>(s: &str) -> Result<T, FonNativeError> {
+    s.parse::<T>()
+        .map_err(|_| FonNativeError::Parse(format!("Failed to parse number: '{}'", s)))
+}
+
+
+fn parse_number_array<T: FromStr>(data: &[u8]) -> Result<(Vec<T>, usize), FonNativeError> {
+    if data[0] != b'[' {
+        return Err(FonNativeError::Parse("Array must start with '['".into()));
+    }
+
+    let close = find_closing_bracket(data)?;
+    let content = &data[1..close];
+
+    let mut result: Vec<T> = Vec::with_capacity(content.len() / 4);
+    let mut pos = 0;
+    while pos < content.len() {
+        let remaining = &content[pos..];
+        let end = find_value_end(remaining);
+        let s = std::str::from_utf8(&remaining[..end])
+            .map_err(|_| FonNativeError::Parse("Invalid UTF-8 in number".into()))?;
+        result.push(parse_num::<T>(s)?);
+        pos += end;
+        if pos < content.len() && content[pos] == b',' {
+            pos += 1;
+        }
+    }
+
+    let mut total_consumed = close + 1;
+    if total_consumed < data.len() && data[total_consumed] == b',' {
+        total_consumed += 1;
+    }
+
+    Ok((result, total_consumed))
+}
+
+
+fn parse_string(data: &[u8]) -> Result<(String, usize), FonNativeError> {
+    if data[0] != b'"' {
+        return Err(FonNativeError::Parse("String must start with '\"'".into()));
+    }
+
+    let mut end_quote = 1;
+    while end_quote < data.len() {
+        if data[end_quote] == b'"' && data[end_quote - 1] != b'\\' {
+            break;
+        }
+        end_quote += 1;
+    }
+
+    let content = &data[1..end_quote];
+
+    // Fast path: no escapes.
+    if !content.contains(&b'\\') {
+        let s = std::str::from_utf8(content)
+            .map_err(|_| FonNativeError::Parse("Invalid UTF-8 in string".into()))?
+            .to_owned();
+        let mut consumed = end_quote + 1;
+        if consumed < data.len() && data[consumed] == b',' {
+            consumed += 1;
+        }
+        return Ok((s, consumed));
+    }
+
+    let mut bytes = Vec::with_capacity(content.len());
+    let mut i = 0;
+    while i < content.len() {
+        if content[i] == b'\\' && i + 1 < content.len() {
+            i += 1;
+            match content[i] {
+                b'"' => bytes.push(b'"'),
+                b'\\' => bytes.push(b'\\'),
+                b'n' => bytes.push(b'\n'),
+                b'r' => bytes.push(b'\r'),
+                b't' => bytes.push(b'\t'),
+                b'b' => bytes.push(b'\x08'),
+                b'f' => bytes.push(b'\x0C'),
+                other => bytes.push(other),
+            }
+        } else {
+            bytes.push(content[i]);
+        }
+        i += 1;
+    }
+    let s = String::from_utf8(bytes)
+        .map_err(|_| FonNativeError::Parse("Invalid UTF-8 in string".into()))?;
+
+    let mut consumed = end_quote + 1;
+    if consumed < data.len() && data[consumed] == b',' {
+        consumed += 1;
+    }
+    Ok((s, consumed))
+}
+
+
+fn find_value_end(data: &[u8]) -> usize {
+    for (i, &c) in data.iter().enumerate() {
+        if c == b',' || c == b']' || c == b'\r' || c == b'\n' {
+            return i;
+        }
+    }
+    data.len()
+}
+
+
+fn find_closing_bracket(data: &[u8]) -> Result<usize, FonNativeError> {
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+
+    for i in 0..data.len() {
+        let c = data[i];
+        if c == b'"' && (i == 0 || data[i - 1] != b'\\') {
+            in_string = !in_string;
+        } else if !in_string {
+            if c == b'[' {
+                depth += 1;
+            } else if c == b']' {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(i);
+                }
+            }
+        }
+    }
+    Err(FonNativeError::Parse("Closing bracket not found".into()))
+}
+
+
+fn find_closing_brace(data: &[u8]) -> Result<usize, FonNativeError> {
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+
+    for i in 0..data.len() {
+        let c = data[i];
+        if c == b'"' && (i == 0 || data[i - 1] != b'\\') {
+            in_string = !in_string;
+        } else if !in_string {
+            if c == b'{' {
+                depth += 1;
+            } else if c == b'}' {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(i);
+                }
+            }
+        }
+    }
+    Err(FonNativeError::Parse("Closing brace not found".into()))
+}
+
+
+fn parse_object(
+    data: &[u8],
+    depth: i32,
+    max_depth: i32,
+) -> Result<(Box<FonCollection>, usize), FonNativeError> {
+    if depth > max_depth {
+        return Err(FonNativeError::Parse(
+            "Maximum nesting depth exceeded".into(),
+        ));
+    }
+    if data[0] != b'{' {
+        return Err(FonNativeError::Parse("Object must start with '{'".into()));
+    }
+
+    let close = find_closing_brace(data)?;
+    let body = &data[1..close];
+
+    let collection = parse_collection_body(body, depth, max_depth)?;
+
+    let mut consumed = close + 1;
+    if consumed < data.len() && data[consumed] == b',' {
+        consumed += 1;
+    }
+
+    Ok((Box::new(collection), consumed))
+}
+
+
+fn parse_object_array(
+    data: &[u8],
+    depth: i32,
+    max_depth: i32,
+) -> Result<(Vec<Box<FonCollection>>, usize), FonNativeError> {
+    if depth > max_depth {
+        return Err(FonNativeError::Parse(
+            "Maximum nesting depth exceeded".into(),
+        ));
+    }
+    if data[0] != b'[' {
+        return Err(FonNativeError::Parse(
+            "Object array must start with '['".into(),
+        ));
+    }
+
+    let close = find_closing_bracket(data)?;
+    let content = &data[1..close];
+
+    let mut result: Vec<Box<FonCollection>> = Vec::new();
+    let mut pos = 0;
+    while pos < content.len() {
+        let remaining = &content[pos..];
+        if remaining[0] != b'{' {
+            return Err(FonNativeError::Parse(
+                "Object array element must start with '{'".into(),
+            ));
+        }
+        let (obj, consumed) = parse_object(remaining, depth, max_depth)?;
+        result.push(obj);
+        pos += consumed;
+    }
+
+    let mut total_consumed = close + 1;
+    if total_consumed < data.len() && data[total_consumed] == b',' {
+        total_consumed += 1;
+    }
+
+    Ok((result, total_consumed))
+}
+
+
+fn find_byte(data: &[u8], target: u8) -> Option<usize> {
+    data.iter().position(|&b| b == target)
+}

@@ -22,8 +22,8 @@
 
 	<Target Name="CopyNativeLib"
 	        AfterTargets="Build"
-	        Condition="Exists('$(MSBuildThisFileDirectory)..\..\build\Release\fon_native.dll')">
-		<Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\build\Release\fon_native.dll"
+	        Condition="Exists('$(MSBuildThisFileDirectory)..\..\FON.Native\target\release\fon_native.dll')">
+		<Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\FON.Native\target\release\fon_native.dll"
 		      DestinationFolder="$(OutputPath)"
 		      SkipUnchangedFiles="true" />
 	</Target>

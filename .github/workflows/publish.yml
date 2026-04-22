@@ -47,25 +47,22 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup MSVC
-      uses: microsoft/setup-msbuild@v2
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Configure CMake
-      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release -A x64
-
     - name: Build native
-      run: cmake --build build --config Release
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml
 
     - name: Build .NET
       run: dotnet build --configuration Release
-
-    - name: Copy native library for tests
-      run: copy build\Release\fon_native.dll FON.Tests\FON.Native.Test\bin\Release\net10.0\
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -74,7 +71,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: native-win-x64
-        path: build/Release/fon_native.dll
+        path: FON.Native/target/release/fon_native.dll
 
   build-native-windows-arm64:
     needs: check-version
@@ -83,20 +80,23 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup MSVC
-      uses: microsoft/setup-msbuild@v2
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-pc-windows-msvc
 
-    - name: Configure CMake
-      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release -A ARM64
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
+        key: aarch64-pc-windows-msvc
 
     - name: Build
-      run: cmake --build build --config Release
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml --target aarch64-pc-windows-msvc
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: native-win-arm64
-        path: build/Release/fon_native.dll
+        path: FON.Native/target/aarch64-pc-windows-msvc/release/fon_native.dll
 
   build-native-linux-x64:
     needs: check-version
@@ -105,25 +105,25 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Configure CMake
-      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release
-
     - name: Build native
-      run: cmake --build build --config Release
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml
 
     - name: Build .NET
       run: dotnet build --configuration Release
 
     - name: Copy native library for tests
-      run: cp build/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
+      run: cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -132,7 +132,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: native-linux-x64
-        path: build/libfon_native.so
+        path: FON.Native/target/release/libfon_native.so
 
   build-native-linux-arm64:
     needs: check-version
@@ -141,25 +141,25 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Configure CMake
-      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release
-
     - name: Build native
-      run: cmake --build build --config Release
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml
 
     - name: Build .NET
       run: dotnet build --configuration Release
 
     - name: Copy native library for tests
-      run: cp build/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
+      run: cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -168,54 +168,63 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: native-linux-arm64
-        path: build/libfon_native.so
+        path: FON.Native/target/release/libfon_native.so
 
   build-native-linux-musl-x64:
     needs: check-version
     if: needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
-    container: alpine:latest
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: apk add --no-cache build-base cmake
+    - name: Install musl tools
+      run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-    - name: Configure CMake
-      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-musl
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
+        key: x86_64-unknown-linux-musl
 
     - name: Build
-      run: cmake --build build --config Release
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml --target x86_64-unknown-linux-musl
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: native-linux-musl-x64
-        path: build/libfon_native.so
+        path: FON.Native/target/x86_64-unknown-linux-musl/release/libfon_native.so
 
   build-native-linux-musl-arm64:
     needs: check-version
     if: needs.check-version.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
+    - name: Install musl tools
+      run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-    - name: Build with Docker (Alpine ARM64)
-      run: |
-        docker run --rm --platform linux/arm64 \
-          -v ${{ github.workspace }}:/workspace \
-          -w /workspace \
-          alpine:latest \
-          sh -c "apk add --no-cache build-base cmake && cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release"
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-unknown-linux-musl
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
+        key: aarch64-unknown-linux-musl
+
+    - name: Build
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml --target aarch64-unknown-linux-musl
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: native-linux-musl-arm64
-        path: build/libfon_native.so
+        path: FON.Native/target/aarch64-unknown-linux-musl/release/libfon_native.so
 
   build-native-macos-x64:
     needs: check-version
@@ -224,17 +233,23 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Configure CMake (cross-compile for x86_64)
-      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-apple-darwin
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
+        key: x86_64-apple-darwin
 
     - name: Build
-      run: cmake --build build --config Release
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml --target x86_64-apple-darwin
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: native-osx-x64
-        path: build/libfon_native.dylib
+        path: FON.Native/target/x86_64-apple-darwin/release/libfon_native.dylib
 
   build-native-macos-arm64:
     needs: check-version
@@ -243,22 +258,25 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Configure CMake
-      run: cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
-
     - name: Build native
-      run: cmake --build build --config Release
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml
 
     - name: Build .NET
       run: dotnet build --configuration Release
 
     - name: Copy native library for tests
-      run: cp build/libfon_native.dylib FON.Tests/FON.Native.Test/bin/Release/net10.0/
+      run: cp FON.Native/target/release/libfon_native.dylib FON.Tests/FON.Native.Test/bin/Release/net10.0/
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -267,7 +285,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: native-osx-arm64
-        path: build/libfon_native.dylib
+        path: FON.Native/target/release/libfon_native.dylib
 
   # Pack, publish and create release
   publish:
