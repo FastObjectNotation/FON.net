@@ -16,21 +16,38 @@ pub fn serialize_to_string(collection: &FonCollection) -> String {
 }
 
 
-pub fn serialize_to_file(
-    dump: &FonDump,
-    path: &Path,
-    _max_threads: i32,
-) -> Result<(), FonNativeError> {
+pub fn serialize_dump_lines(dump: &FonDump, _max_threads: i32) -> Vec<String> {
     let mut entries: Vec<(u64, &FonCollection)> = dump
         .iter()
         .map(|(id, c)| (*id, c))
         .collect();
     entries.sort_by_key(|(id, _)| *id);
 
-    let lines: Vec<String> = entries
+    entries
         .par_iter()
         .map(|(_, c)| serialize_to_string(c))
-        .collect();
+        .collect()
+}
+
+
+pub fn serialize_dump_to_string(dump: &FonDump, max_threads: i32) -> String {
+    let lines = serialize_dump_lines(dump, max_threads);
+    let total: usize = lines.iter().map(|l| l.len() + 1).sum();
+    let mut out = String::with_capacity(total);
+    for line in &lines {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+
+pub fn serialize_to_file(
+    dump: &FonDump,
+    path: &Path,
+    max_threads: i32,
+) -> Result<(), FonNativeError> {
+    let lines = serialize_dump_lines(dump, max_threads);
 
     let file = File::create(path)
         .map_err(|e| FonNativeError::Write(format!("Failed to open file for writing: {}", e)))?;

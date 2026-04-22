@@ -108,6 +108,69 @@ public static class NativeBindings {
 
 
 
+    // ==================== STRING / BUFFER SERIALIZATION ====================
+
+    /// <summary>
+    /// Serializes a Dump into the caller-supplied UTF-8 buffer using a two-call pattern.
+    /// First call with <paramref name="buffer"/>=null and <paramref name="bufferSize"/>=0 fills
+    /// <paramref name="requiredSize"/> with the exact byte count; second call with a buffer of that
+    /// size receives the bytes. Output is NOT null-terminated.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern unsafe int fon_serialize_dump_to_buffer(
+        IntPtr dump,
+        byte* buffer,
+        long bufferSize,
+        out long requiredSize,
+        int maxThreads,
+        ref FonError error
+    );
+
+
+    /// <summary>
+    /// Serializes a single Collection into the caller-supplied UTF-8 buffer (two-call pattern).
+    /// See <see cref="fon_serialize_dump_to_buffer"/> for protocol details.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern unsafe int fon_serialize_collection_to_buffer(
+        IntPtr collection,
+        byte* buffer,
+        long bufferSize,
+        out long requiredSize,
+        ref FonError error
+    );
+
+
+
+    // ==================== STRING / BUFFER DESERIALIZATION ====================
+
+    /// <summary>
+    /// Parses a multi-line UTF-8 buffer into a new Dump. Caller owns the returned handle and must
+    /// free it via <see cref="fon_dump_free"/>. The input does not need to be null-terminated.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern unsafe IntPtr fon_deserialize_dump_from_buffer(
+        byte* data,
+        long size,
+        int maxThreads,
+        ref FonError error
+    );
+
+
+    /// <summary>
+    /// Parses a single-line UTF-8 buffer into a new Collection. Caller owns the returned handle and
+    /// must free it via <see cref="fon_collection_free"/> (unless ownership is transferred via
+    /// <see cref="fon_dump_add"/> or <see cref="fon_collection_add_collection"/>).
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern unsafe IntPtr fon_deserialize_collection_from_buffer(
+        byte* data,
+        long size,
+        ref FonError error
+    );
+
+
+
     // ==================== COLLECTION ADD OPERATIONS ====================
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]

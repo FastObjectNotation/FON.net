@@ -16,9 +16,12 @@ use std::ptr;
 use std::slice;
 use std::sync::atomic::Ordering;
 
-use crate::deserialize::{deserialize_from_file, DESERIALIZE_RAW_UNPACK, MAX_DEPTH};
+use crate::deserialize::{
+    deserialize_dump_from_bytes, deserialize_from_file, deserialize_line, DESERIALIZE_RAW_UNPACK,
+    MAX_DEPTH,
+};
 use crate::error::FonNativeError;
-use crate::serialize::serialize_to_file;
+use crate::serialize::{serialize_dump_to_string, serialize_to_file, serialize_to_string};
 use crate::types::{FonCollection, FonDump, FonValue};
 
 
@@ -235,6 +238,124 @@ pub extern "C" fn fon_deserialize_from_file(
 
     match deserialize_from_file(&PathBuf::from(path_str), max_threads) {
         Ok(dump) => Box::into_raw(Box::new(dump)) as *mut c_void,
+        Err(e) => {
+            let code = err_code(&e);
+            set_error(error, code, &e.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+
+// ==================== STRING / BUFFER SERIALIZATION ====================
+
+// Two-call pattern (matches fon_collection_get_int_array):
+//   1. Pass buffer=null, buffer_size=0 to read required size into *required_size.
+//   2. Allocate buffer of required_size bytes, call again to receive UTF-8 bytes.
+// Output is NOT null-terminated; *required_size is the exact byte count.
+
+unsafe fn write_buffer(
+    bytes: &[u8],
+    buffer: *mut u8,
+    buffer_size: i64,
+    required_size: *mut i64,
+) -> i32 {
+    if !required_size.is_null() {
+        *required_size = bytes.len() as i64;
+    }
+    if !buffer.is_null() && buffer_size > 0 {
+        let copy_count = (buffer_size as usize).min(bytes.len());
+        let dst = slice::from_raw_parts_mut(buffer, copy_count);
+        dst.copy_from_slice(&bytes[..copy_count]);
+    }
+    FON_OK
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_serialize_dump_to_buffer(
+    dump: *mut c_void,
+    buffer: *mut u8,
+    buffer_size: i64,
+    required_size: *mut i64,
+    max_threads: i32,
+    error: *mut FonError,
+) -> i32 {
+    if dump.is_null() || required_size.is_null() {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    let d = unsafe { &*(dump as *const FonDump) };
+    let s = serialize_dump_to_string(d, max_threads);
+    unsafe { write_buffer(s.as_bytes(), buffer, buffer_size, required_size) }
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_serialize_collection_to_buffer(
+    collection: *mut c_void,
+    buffer: *mut u8,
+    buffer_size: i64,
+    required_size: *mut i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || required_size.is_null() {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    let c = unsafe { &*(collection as *const FonCollection) };
+    let s = serialize_to_string(c);
+    unsafe { write_buffer(s.as_bytes(), buffer, buffer_size, required_size) }
+}
+
+
+// ==================== STRING / BUFFER DESERIALIZATION ====================
+
+#[no_mangle]
+pub extern "C" fn fon_deserialize_dump_from_buffer(
+    data: *const u8,
+    size: i64,
+    max_threads: i32,
+    error: *mut FonError,
+) -> *mut c_void {
+    if (data.is_null() && size > 0) || size < 0 {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return ptr::null_mut();
+    }
+    let bytes = if size == 0 {
+        &[][..]
+    } else {
+        unsafe { slice::from_raw_parts(data, size as usize) }
+    };
+    match deserialize_dump_from_bytes(bytes, max_threads) {
+        Ok(dump) => Box::into_raw(Box::new(dump)) as *mut c_void,
+        Err(e) => {
+            let code = err_code(&e);
+            set_error(error, code, &e.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_deserialize_collection_from_buffer(
+    data: *const u8,
+    size: i64,
+    error: *mut FonError,
+) -> *mut c_void {
+    if (data.is_null() && size > 0) || size < 0 {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return ptr::null_mut();
+    }
+    let bytes = if size == 0 {
+        &[][..]
+    } else {
+        unsafe { slice::from_raw_parts(data, size as usize) }
+    };
+    let max_depth = MAX_DEPTH.load(Ordering::Relaxed);
+    match deserialize_line(bytes, max_depth) {
+        Ok(c) => Box::into_raw(Box::new(c)) as *mut c_void,
         Err(e) => {
             let code = err_code(&e);
             set_error(error, code, &e.to_string());

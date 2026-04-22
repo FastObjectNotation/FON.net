@@ -19,12 +19,20 @@ pub static MAX_DEPTH: AtomicI32 = AtomicI32::new(64);
 
 pub fn deserialize_from_file(
     path: &Path,
-    _max_threads: i32,
+    max_threads: i32,
 ) -> Result<FonDump, FonNativeError> {
     let content = fs::read(path)
         .map_err(|e| FonNativeError::Parse(format!("Failed to open file: {}", e)))?;
 
-    let lines = split_lines(&content);
+    deserialize_dump_from_bytes(&content, max_threads)
+}
+
+
+pub fn deserialize_dump_from_bytes(
+    content: &[u8],
+    _max_threads: i32,
+) -> Result<FonDump, FonNativeError> {
+    let lines = split_lines(content);
 
     let max_depth = MAX_DEPTH.load(Ordering::Relaxed);
 
