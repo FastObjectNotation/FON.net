@@ -190,6 +190,8 @@ jobs:
         key: x86_64-unknown-linux-musl
 
     - name: Build
+      env:
+        RUSTFLAGS: -C target-feature=-crt-static
       run: cargo build --release --manifest-path FON.Native/Cargo.toml --target x86_64-unknown-linux-musl
 
     - name: Upload artifact
@@ -218,6 +220,8 @@ jobs:
         key: aarch64-unknown-linux-musl
 
     - name: Build
+      env:
+        RUSTFLAGS: -C target-feature=-crt-static
       run: cargo build --release --manifest-path FON.Native/Cargo.toml --target aarch64-unknown-linux-musl
 
     - name: Upload artifact
