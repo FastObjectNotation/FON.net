@@ -176,8 +176,11 @@ codegen-units = 1
 `FON.Native/src/lib.rs` keeps its entire role as the C ABI. Changes:
 
 - Drop `mod deserialize; mod error; mod raw_data; mod serialize; mod types;`.
-- `use fon::{FonCollection, FonDump, FonValue, FonError, DeserializeOptions, ...}`
-  and the `fon` serialize/deserialize free functions.
+- `use fon::{FonCollection, FonDump, FonValue, DeserializeOptions, ...}` and the
+  `fon` serialize/deserialize free functions. **Name clash:** the shim already
+  defines a `#[repr(C)]` struct `FonError` (the C ABI out-parameter, name is
+  load-bearing) — import the library enum aliased, `use fon::FonError as
+  FonLibError;`, to avoid colliding with it.
 - Keep the ambient setters' backing state **here** (this is FFI-specific):
   ```rust
   static MAX_DEPTH: AtomicI32 = AtomicI32::new(64);
@@ -186,7 +189,8 @@ codegen-units = 1
   `fon_set_max_depth` / `fon_set_raw_unpack` write them; each deserialize export
   builds `DeserializeOptions { max_depth: MAX_DEPTH.load(..), unpack_raw: ... }`
   and passes it into `fon`. External C ABI behavior is unchanged.
-- `err_code(&FonError)` mapping stays here (FFI concern).
+- `err_code(&FonLibError)` mapping (library error -> C result code) stays here
+  (FFI concern); the `#[repr(C)] FonError` struct and `set_error` are unchanged.
 - `version_cstr()` returns `concat!(env!("CARGO_PKG_VERSION"), "\0")` instead of
   the hard-coded `"1.0.0"`. This fixes the current version drift and makes
   `fon_version()` auto-report the shim's Cargo version.
