@@ -1,14 +1,14 @@
 # FON - Fast Object Notation
 
-High-performance serialization library for .NET with parallel processing and optional native acceleration. A fast alternative to JSON for .NET applications.
+A fast, human-readable serialization library for .NET — a compact alternative to JSON for record-style data, with parallel processing and optional Rust-powered native acceleration.
 
 ## Features
 
-- **High Performance** - Parallel serialization/deserialization with SIMD-optimized parsing
-- **Zero-allocation parsing** - Uses `Span<T>`, `stackalloc`, and `ArrayPool`
-- **Native Acceleration** - Optional C++ native library for even faster processing
-- **Cross-platform** - Windows, Linux, macOS (x64 and ARM64)
-- **Simple Format** - Human-readable key-value format
+- **High performance** — parallel serialization/deserialization across CPU cores
+- **Zero-allocation managed parsing** — uses `Span<T>`, `stackalloc`, and `ArrayPool`
+- **Native acceleration** — optional Rust native library for even faster processing
+- **Cross-platform** — Windows, Linux, macOS (x64 and ARM64)
+- **Simple, human-readable format** — typed `key=type:value` pairs, one record per line
 
 ## Installation
 
@@ -78,7 +78,7 @@ foreach (var (key, record) in loaded.FonObjects) {
 | `double` | `d` | `precise=d:3.141592653589793` |
 | `string` | `s` | `name=s:"Hello"` |
 | `bool` | `b` | `active=b:1` |
-| `RawData` | `r` | `data=r:"base64..."` |
+| `RawData` | `r` | `data=r:"nm=QNzv..."` |
 | `FonCollection` | `o` | `user=o:{id=i:1,name=s:"Bob"}` |
 
 All primitive and string types support arrays (`values=i:[1,2,3,4,5]`). Nested objects also support arrays of objects (`items=o:[{id=i:1},{id=i:2}]`).
@@ -102,8 +102,8 @@ name=s:"John",age=i:30,balance=d:1234.56
 # Arrays
 scores=i:[95,87,92,88],tags=s:["admin","user"]
 
-# Binary data (base64 encoded)
-image=r:"iVBORw0KGgoAAAANSUhEUg..."
+# Binary data (Z85 encoded)
+image=r:"nm=QNzv..."
 ```
 
 ```
@@ -166,7 +166,7 @@ Fon.MaxDepth = 64;
 
 ## Native Acceleration
 
-FON includes optional native acceleration via a C++ library for maximum performance.
+FON includes optional native acceleration via a Rust library for maximum performance.
 
 ### Package Structure
 
@@ -242,15 +242,15 @@ dotnet add package FastObjectNotation.Native.linux-x64
 ## Building from Source
 
 ```bash
-git clone https://github.com/FastObjectNotation/FON.net.git
+# The native library lives in a submodule (FON.Native/fon-rust)
+git clone --recurse-submodules https://github.com/FastObjectNotation/FON.net.git
 cd FON.net
 
-# Build managed library
-dotnet build
+# Build the native library (requires Rust)
+cargo build --release --manifest-path FON.Native/Cargo.toml
 
-# Build native library (requires CMake)
-cmake -B build -S FON.Native -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+# Build the managed library
+dotnet build
 
 # Run tests
 dotnet test
