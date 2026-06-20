@@ -34,10 +34,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
-name = "fon_native"
-version = "1.0.0"
+name = "fon"
+version = "0.2.1"
 dependencies = [
  "rayon",
+]
+
+[[package]]
+name = "fon_native"
+version = "0.2.1"
+dependencies = [
+ "fon",
 ]
 
 [[package]]

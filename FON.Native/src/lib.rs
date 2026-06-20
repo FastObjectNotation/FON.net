@@ -1,28 +1,18 @@
-//! FON native library — Rust port of the C++ implementation.
+//! FON native library — C ABI shim over the `fon` crate.
 //!
 //! Exposes a C ABI matching the original `fon_export.h` so the .NET P/Invoke
 //! bindings (`NativeBindings.cs`) work without any change.
-
-mod deserialize;
-mod error;
-mod raw_data;
-mod serialize;
-mod types;
-
 
 use std::ffi::{c_char, c_void, CStr};
 use std::path::PathBuf;
 use std::ptr;
 use std::slice;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use crate::deserialize::{
-    deserialize_dump_from_bytes, deserialize_from_file, deserialize_line, DESERIALIZE_RAW_UNPACK,
-    MAX_DEPTH,
-};
-use crate::error::FonNativeError;
-use crate::serialize::{serialize_dump_to_string, serialize_to_file, serialize_to_string};
-use crate::types::{FonCollection, FonDump, FonValue};
+use fon::deserialize::{deserialize_dump_from_bytes, deserialize_from_file, deserialize_line};
+use fon::serialize::{serialize_dump_to_string, serialize_to_file, serialize_to_string};
+use fon::types::{FonCollection, FonDump, FonValue};
+use fon::{DeserializeOptions, FonError as FonLibError};
 
 
 // Result codes mirror fon_export.h.
@@ -31,6 +21,10 @@ pub const FON_ERROR_FILE_NOT_FOUND: i32 = 1;
 pub const FON_ERROR_PARSE_FAILED: i32 = 2;
 pub const FON_ERROR_WRITE_FAILED: i32 = 3;
 pub const FON_ERROR_INVALID_ARGUMENT: i32 = 4;
+
+
+static DESERIALIZE_RAW_UNPACK: AtomicBool = AtomicBool::new(false);
+static MAX_DEPTH: AtomicI32 = AtomicI32::new(64);
 
 
 #[repr(C)]
@@ -58,28 +52,27 @@ fn set_error(error: *mut FonError, code: i32, message: &str) {
 }
 
 
-fn err_code(e: &FonNativeError) -> i32 {
+fn err_code(e: &FonLibError) -> i32 {
     match e {
-        FonNativeError::Parse(_) => FON_ERROR_PARSE_FAILED,
-        FonNativeError::Write(_) => FON_ERROR_WRITE_FAILED,
-        FonNativeError::InvalidArgument(_) => FON_ERROR_INVALID_ARGUMENT,
+        FonLibError::Parse(_) => FON_ERROR_PARSE_FAILED,
+        FonLibError::Write(_) => FON_ERROR_WRITE_FAILED,
+        FonLibError::InvalidArgument(_) => FON_ERROR_INVALID_ARGUMENT,
     }
 }
 
 
-unsafe fn cstr_to_str<'a>(p: *const c_char) -> Result<&'a str, FonNativeError> {
+unsafe fn cstr_to_str<'a>(p: *const c_char) -> Result<&'a str, FonLibError> {
     if p.is_null() {
-        return Err(FonNativeError::InvalidArgument("null pointer".into()));
+        return Err(FonLibError::InvalidArgument("null pointer".into()));
     }
     CStr::from_ptr(p)
         .to_str()
-        .map_err(|_| FonNativeError::InvalidArgument("invalid UTF-8".into()))
+        .map_err(|_| FonLibError::InvalidArgument("invalid UTF-8".into()))
 }
 
 
 fn version_cstr() -> *const c_char {
-    // Static null-terminated UTF-8 string. C# reads via Marshal.PtrToStringAnsi.
-    b"1.0.0\0".as_ptr() as *const c_char
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
 }
 
 
@@ -236,7 +229,11 @@ pub extern "C" fn fon_deserialize_from_file(
         }
     };
 
-    match deserialize_from_file(&PathBuf::from(path_str), max_threads) {
+    let opts = DeserializeOptions {
+        max_depth: MAX_DEPTH.load(Ordering::Relaxed),
+        unpack_raw: DESERIALIZE_RAW_UNPACK.load(Ordering::Relaxed),
+    };
+    match deserialize_from_file(&PathBuf::from(path_str), max_threads, &opts) {
         Ok(dump) => Box::into_raw(Box::new(dump)) as *mut c_void,
         Err(e) => {
             let code = err_code(&e);
@@ -327,7 +324,11 @@ pub extern "C" fn fon_deserialize_dump_from_buffer(
     } else {
         unsafe { slice::from_raw_parts(data, size as usize) }
     };
-    match deserialize_dump_from_bytes(bytes, max_threads) {
+    let opts = DeserializeOptions {
+        max_depth: MAX_DEPTH.load(Ordering::Relaxed),
+        unpack_raw: DESERIALIZE_RAW_UNPACK.load(Ordering::Relaxed),
+    };
+    match deserialize_dump_from_bytes(bytes, max_threads, &opts) {
         Ok(dump) => Box::into_raw(Box::new(dump)) as *mut c_void,
         Err(e) => {
             let code = err_code(&e);
@@ -353,8 +354,11 @@ pub extern "C" fn fon_deserialize_collection_from_buffer(
     } else {
         unsafe { slice::from_raw_parts(data, size as usize) }
     };
-    let max_depth = MAX_DEPTH.load(Ordering::Relaxed);
-    match deserialize_line(bytes, max_depth) {
+    let opts = DeserializeOptions {
+        max_depth: MAX_DEPTH.load(Ordering::Relaxed),
+        unpack_raw: DESERIALIZE_RAW_UNPACK.load(Ordering::Relaxed),
+    };
+    match deserialize_line(bytes, &opts) {
         Ok(c) => Box::into_raw(Box::new(c)) as *mut c_void,
         Err(e) => {
             let code = err_code(&e);

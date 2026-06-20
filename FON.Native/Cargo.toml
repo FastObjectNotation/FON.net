@@ -1,6 +1,6 @@
 [package]
 name = "fon_native"
-version = "1.0.0"
+version = "0.2.1"
 edition = "2021"
 publish = false
 
@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-rayon = "1"
+fon = { path = "fon-rust" }
 
 [profile.release]
 opt-level = 3
