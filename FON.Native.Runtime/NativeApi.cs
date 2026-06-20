@@ -6,7 +6,7 @@ namespace FON.Native;
 
 
 /// <summary>
-/// High-level convenience wrappers around <see cref="NativeBindings"/> for in-memory
+/// High-level helpers built on <see cref="NativeBindings"/> for in-memory
 /// serialization and deserialization to/from UTF-8 strings and byte spans.
 ///
 /// All methods throw <see cref="FonNativeException"/> on native error. Caller is responsible

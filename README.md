@@ -1,12 +1,12 @@
-# FON - Fast Object Notation
+# FON — Fast Object Notation
 
-A fast, human-readable serialization library for .NET — a compact alternative to JSON for record-style data, with parallel processing and optional Rust-powered native acceleration.
+FON is a fast, human-readable serialization format — a compact alternative to JSON for record-style data. Each line in a `.fon` file is one self-describing record of typed `key=type:value` pairs. This library provides high-performance serialization and deserialization for .NET, with parallel processing across CPU cores and optional native acceleration for maximum throughput.
 
 ## Features
 
 - **High performance** — parallel serialization/deserialization across CPU cores
 - **Zero-allocation managed parsing** — uses `Span<T>`, `stackalloc`, and `ArrayPool`
-- **Native acceleration** — optional Rust native library for even faster processing
+- **Native acceleration** — optional native library for even faster processing
 - **Cross-platform** — Windows, Linux, macOS (x64 and ARM64)
 - **Simple, human-readable format** — typed `key=type:value` pairs, one record per line
 
@@ -15,14 +15,14 @@ A fast, human-readable serialization library for .NET — a compact alternative 
 ### Basic (Managed Only)
 
 ```bash
-dotnet add package FON
+dotnet add package FastObjectNotation --version 0.3.0
 ```
 
 ### With Native Acceleration (Recommended for large datasets)
 
 ```bash
-dotnet add package FON
-dotnet add package FastObjectNotation.Native
+dotnet add package FastObjectNotation --version 0.3.0
+dotnet add package FastObjectNotation.Native --version 0.3.0
 ```
 
 The `FastObjectNotation.Native` package automatically includes native binaries for all supported platforms.
@@ -166,15 +166,15 @@ Fon.MaxDepth = 64;
 
 ## Native Acceleration
 
-FON includes optional native acceleration via a Rust library for maximum performance.
+FON includes optional native acceleration for maximum performance.
 
 ### Package Structure
 
 | Package | Description |
 |---------|-------------|
-| `FON` | Core library (managed, works everywhere) |
+| `FastObjectNotation` | Core library (managed, works everywhere) |
 | `FastObjectNotation.Native` | Meta-package that includes all native binaries |
-| `FastObjectNotation.Native.Runtime` | P/Invoke bindings (included by FastObjectNotation.Native) |
+| `FastObjectNotation.Native.Runtime` | Native runtime interface (included by FastObjectNotation.Native) |
 | `FastObjectNotation.Native.win-x64` | Windows x64 native binary |
 | `FastObjectNotation.Native.win-arm64` | Windows ARM64 native binary |
 | `FastObjectNotation.Native.linux-x64` | Linux x64 native binary |
@@ -205,7 +205,7 @@ if (FonAccelerator.IsAvailable) {
 | Memory-constrained environments | Native (lower allocations) |
 | Docker/Alpine containers | Use `linux-musl-*` packages |
 | Cross-platform deployment | Install `FastObjectNotation.Native` for all platforms |
-| Single platform deployment | Install specific `FastObjectNotation.Native.{rid}` package |
+| Single-platform deployment | Install specific `FastObjectNotation.Native.{rid}` package |
 
 ### Platform-Specific Installation
 
@@ -213,17 +213,17 @@ If you only need native support for specific platforms (smaller deployment):
 
 ```bash
 # Windows x64 only
-dotnet add package FastObjectNotation.Native.Runtime
-dotnet add package FastObjectNotation.Native.win-x64
+dotnet add package FastObjectNotation.Native.Runtime --version 0.3.0
+dotnet add package FastObjectNotation.Native.win-x64 --version 0.3.0
 
 # Linux x64 only
-dotnet add package FastObjectNotation.Native.Runtime
-dotnet add package FastObjectNotation.Native.linux-x64
+dotnet add package FastObjectNotation.Native.Runtime --version 0.3.0
+dotnet add package FastObjectNotation.Native.linux-x64 --version 0.3.0
 
 # Multiple specific platforms
-dotnet add package FastObjectNotation.Native.Runtime
-dotnet add package FastObjectNotation.Native.win-x64
-dotnet add package FastObjectNotation.Native.linux-x64
+dotnet add package FastObjectNotation.Native.Runtime --version 0.3.0
+dotnet add package FastObjectNotation.Native.win-x64 --version 0.3.0
+dotnet add package FastObjectNotation.Native.linux-x64 --version 0.3.0
 ```
 
 ## Performance Tips
@@ -242,14 +242,10 @@ dotnet add package FastObjectNotation.Native.linux-x64
 ## Building from Source
 
 ```bash
-# The native library lives in a submodule (FON.Native/fon-rust)
 git clone --recurse-submodules https://github.com/FastObjectNotation/FON.net.git
 cd FON.net
 
-# Build the native library (requires Rust)
-cargo build --release --manifest-path FON.Native/Cargo.toml
-
-# Build the managed library
+# Build the library
 dotnet build
 
 # Run tests

@@ -30,7 +30,7 @@ public static class FonResultCode {
 
 
 /// <summary>
-/// P/Invoke bindings for FON native library
+/// Low-level native interop for the FON acceleration library.
 /// </summary>
 public static class NativeBindings {
     private const string LibraryName = "fon_native";
