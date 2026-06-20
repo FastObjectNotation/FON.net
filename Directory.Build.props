@@ -19,7 +19,7 @@
 		<PackageIcon>icon.png</PackageIcon>
 
 		<!-- Version - can be overridden by CI -->
-		<VersionPrefix>0.2.1</VersionPrefix>
+		<VersionPrefix>0.3.0</VersionPrefix>
 		<VersionSuffix></VersionSuffix>
 
 		<!-- Build settings -->
