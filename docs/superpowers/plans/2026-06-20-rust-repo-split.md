@@ -270,9 +270,11 @@ Run in `FON.rust`:
 ```bash
 cargo build
 cargo clippy --all-targets -- -D warnings
-cargo fmt --all --check
 ```
-Expected: all three succeed (clippy clean, fmt reports no diff). If `cargo fmt --all --check` reports diffs, run `cargo fmt --all` and re-run the check.
+Expected: both succeed (clippy clean). Do NOT run `cargo fmt` — the project house
+style uses two blank lines between top-level members and methods (per the user's
+global style rules), which rustfmt's defaults would collapse. Maintain that
+spacing by hand; match the spacing of the original FON.net source files.
 
 - [ ] **Step 10: Commit**
 
@@ -445,13 +447,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test --all
 ```
+
+(No `cargo fmt --check` step: the house style — two blank lines between top-level
+members — diverges from rustfmt defaults and is maintained by hand.)
 
 - [ ] **Step 4: Commit**
 

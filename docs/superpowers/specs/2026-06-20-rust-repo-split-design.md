@@ -259,9 +259,14 @@ Unchanged in `FON.net`: `FON.Native/FON.Native.csproj`, `_._`,
 
 ### FON.rust `ci.yml` (new)
 
-`push` (main/master) + `pull_request`: `cargo fmt --all --check`,
-`cargo clippy --all-targets -- -D warnings`, `cargo test --all`, with
-`Swatinem/rust-cache@v2`. No binary publishing.
+`push` (main/master) + `pull_request`: `cargo clippy --all-targets -- -D warnings`
+and `cargo test --all`, with `Swatinem/rust-cache@v2`. No binary publishing.
+
+`rustfmt` is intentionally NOT enforced: the project house style (two blank lines
+between top-level members and methods, per the user's global style rules)
+diverges from rustfmt's defaults, and stable rustfmt cannot be configured to
+preserve it. Formatting is maintained by hand to the house style; clippy guards
+correctness/idiom.
 
 ## Migration mechanics (local only, no push)
 
