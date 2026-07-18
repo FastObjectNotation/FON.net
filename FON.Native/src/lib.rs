@@ -11,8 +11,11 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 use fon::deserialize::{deserialize_dump_from_bytes, deserialize_from_file, deserialize_line};
 use fon::serialize::{serialize_dump_to_string, serialize_to_file, serialize_to_string};
-use fon::types::{FonCollection, FonDump, FonValue};
-use fon::{DeserializeOptions, FonError as FonLibError};
+use fon::types::{
+    FonCollection, FonDump, FonValue, TYPE_BOOL, TYPE_BYTE, TYPE_DOUBLE, TYPE_FLOAT, TYPE_INT,
+    TYPE_LONG, TYPE_OBJECT, TYPE_RAW, TYPE_SHORT, TYPE_STRING, TYPE_UINT, TYPE_ULONG,
+};
+use fon::{DeserializeOptions, FonError as FonLibError, RawData};
 
 
 // Result codes mirror fon_export.h.
@@ -58,6 +61,44 @@ fn err_code(e: &FonLibError) -> i32 {
         FonLibError::Write(_) => FON_ERROR_WRITE_FAILED,
         FonLibError::InvalidArgument(_) => FON_ERROR_INVALID_ARGUMENT,
     }
+}
+
+
+// Packs a FonValue's type tag + array flag into a single i32 for FFI, so
+// generic (reflection-driven) callers can discover a value's shape without a
+// separate call per candidate type. Layout: low byte = type char (TYPE_*),
+// bit 8 = 1 if the value is an array of that type.
+fn value_kind(v: &FonValue) -> (u8, bool) {
+    match v {
+        FonValue::Byte(_) => (TYPE_BYTE, false),
+        FonValue::Short(_) => (TYPE_SHORT, false),
+        FonValue::Int(_) => (TYPE_INT, false),
+        FonValue::UInt(_) => (TYPE_UINT, false),
+        FonValue::Long(_) => (TYPE_LONG, false),
+        FonValue::ULong(_) => (TYPE_ULONG, false),
+        FonValue::Float(_) => (TYPE_FLOAT, false),
+        FonValue::Double(_) => (TYPE_DOUBLE, false),
+        FonValue::Bool(_) => (TYPE_BOOL, false),
+        FonValue::String(_) => (TYPE_STRING, false),
+        FonValue::Raw(_) => (TYPE_RAW, false),
+        FonValue::Object(_) => (TYPE_OBJECT, false),
+        FonValue::ByteArray(_) => (TYPE_BYTE, true),
+        FonValue::ShortArray(_) => (TYPE_SHORT, true),
+        FonValue::IntArray(_) => (TYPE_INT, true),
+        FonValue::UIntArray(_) => (TYPE_UINT, true),
+        FonValue::LongArray(_) => (TYPE_LONG, true),
+        FonValue::ULongArray(_) => (TYPE_ULONG, true),
+        FonValue::FloatArray(_) => (TYPE_FLOAT, true),
+        FonValue::DoubleArray(_) => (TYPE_DOUBLE, true),
+        FonValue::BoolArray(_) => (TYPE_BOOL, true),
+        FonValue::StringArray(_) => (TYPE_STRING, true),
+        FonValue::ObjectArray(_) => (TYPE_OBJECT, true),
+    }
+}
+
+
+fn pack_kind(t: u8, is_array: bool) -> i32 {
+    (t as i32) | if is_array { 0x100 } else { 0 }
 }
 
 
@@ -137,6 +178,27 @@ pub extern "C" fn fon_dump_get(dump: *mut c_void, index: u64) -> *mut c_void {
         match d.get_mut(index) {
             Some(c) => c as *mut FonCollection as *mut c_void,
             None => ptr::null_mut(),
+        }
+    }
+}
+
+
+/// Gets the record id stored at iteration position `position` (0-based, `0..fon_dump_size(dump)`).
+/// Used to enumerate a Dump without assuming ids are contiguous. Combine with
+/// <c>fon_dump_get</c> to fetch the corresponding collection.
+#[no_mangle]
+pub extern "C" fn fon_dump_id_at(dump: *mut c_void, position: i64, id_out: *mut u64) -> i32 {
+    if dump.is_null() || id_out.is_null() || position < 0 {
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let d = &*(dump as *const FonDump);
+        match d.iter().nth(position as usize) {
+            Some((id, _)) => {
+                *id_out = id;
+                FON_OK
+            }
+            None => FON_ERROR_INVALID_ARGUMENT,
         }
     }
 }
@@ -475,6 +537,84 @@ pub extern "C" fn fon_collection_add_bool(
 
 
 #[no_mangle]
+pub extern "C" fn fon_collection_add_byte(
+    collection: *mut c_void,
+    key: *const c_char,
+    value: u8,
+    error: *mut FonError,
+) -> i32 {
+    unsafe { add_to_collection(collection, key, error, |c, k| c.add(k, FonValue::Byte(value))) }
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_collection_add_short(
+    collection: *mut c_void,
+    key: *const c_char,
+    value: i16,
+    error: *mut FonError,
+) -> i32 {
+    unsafe { add_to_collection(collection, key, error, |c, k| c.add(k, FonValue::Short(value))) }
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_collection_add_uint(
+    collection: *mut c_void,
+    key: *const c_char,
+    value: u32,
+    error: *mut FonError,
+) -> i32 {
+    unsafe { add_to_collection(collection, key, error, |c, k| c.add(k, FonValue::UInt(value))) }
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_collection_add_ulong(
+    collection: *mut c_void,
+    key: *const c_char,
+    value: u64,
+    error: *mut FonError,
+) -> i32 {
+    unsafe { add_to_collection(collection, key, error, |c, k| c.add(k, FonValue::ULong(value))) }
+}
+
+
+/// Adds raw binary data under `key`. The bytes are copied and stored unpacked;
+/// packing to Z85 (if ever needed) happens lazily at serialization time.
+#[no_mangle]
+pub extern "C" fn fon_collection_add_raw(
+    collection: *mut c_void,
+    key: *const c_char,
+    data: *const u8,
+    len: i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || key.is_null() || len < 0 || (data.is_null() && len > 0) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    let k = match unsafe { cstr_to_str(key) } {
+        Ok(s) => s.to_owned(),
+        Err(e) => {
+            set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+            return FON_ERROR_INVALID_ARGUMENT;
+        }
+    };
+    let bytes = if len == 0 {
+        Vec::new()
+    } else {
+        unsafe { slice::from_raw_parts(data, len as usize).to_vec() }
+    };
+    unsafe {
+        let c = &mut *(collection as *mut FonCollection);
+        c.add(k, FonValue::Raw(Box::new(RawData::from_bytes(bytes))));
+    }
+    FON_OK
+}
+
+
+#[no_mangle]
 pub extern "C" fn fon_collection_add_string(
     collection: *mut c_void,
     key: *const c_char,
@@ -621,6 +761,292 @@ pub extern "C" fn fon_collection_add_collection_array(
         p.add(k, FonValue::ObjectArray(vec));
     }
     FON_OK
+}
+
+
+// Shared shape for the fixed-width numeric array types: add copies the input
+// slice into a new FonValue::<Variant>, get copies out via the standard
+// two-call (query-size-then-fill) pattern used throughout this file.
+macro_rules! impl_array_ops {
+    ($add_fn:ident, $get_fn:ident, $variant:ident, $elem:ty) => {
+        #[no_mangle]
+        pub extern "C" fn $add_fn(
+            collection: *mut c_void,
+            key: *const c_char,
+            values: *const $elem,
+            count: i64,
+            error: *mut FonError,
+        ) -> i32 {
+            if collection.is_null() || key.is_null() || count < 0 || (values.is_null() && count > 0) {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+            let k = match unsafe { cstr_to_str(key) } {
+                Ok(s) => s.to_owned(),
+                Err(e) => {
+                    set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+                    return FON_ERROR_INVALID_ARGUMENT;
+                }
+            };
+            let vec = if count == 0 {
+                Vec::new()
+            } else {
+                unsafe { slice::from_raw_parts(values, count as usize).to_vec() }
+            };
+            unsafe {
+                let c = &mut *(collection as *mut FonCollection);
+                c.add(k, FonValue::$variant(vec));
+            }
+            FON_OK
+        }
+
+
+        #[no_mangle]
+        pub extern "C" fn $get_fn(
+            collection: *mut c_void,
+            key: *const c_char,
+            buffer: *mut $elem,
+            buffer_size: i64,
+            actual_size: *mut i64,
+            error: *mut FonError,
+        ) -> i32 {
+            if collection.is_null() || key.is_null() || actual_size.is_null() {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+            unsafe {
+                let c = &*(collection as *const FonCollection);
+                let k = match cstr_to_str(key) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+                        return FON_ERROR_INVALID_ARGUMENT;
+                    }
+                };
+                let arr = match c.get(k) {
+                    Some(FonValue::$variant(v)) => v,
+                    _ => {
+                        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Key not found or wrong type");
+                        return FON_ERROR_INVALID_ARGUMENT;
+                    }
+                };
+                *actual_size = arr.len() as i64;
+                if !buffer.is_null() && buffer_size > 0 {
+                    let copy_count = (buffer_size as usize).min(arr.len());
+                    let dst = slice::from_raw_parts_mut(buffer, copy_count);
+                    dst.copy_from_slice(&arr[..copy_count]);
+                }
+                FON_OK
+            }
+        }
+    };
+}
+
+impl_array_ops!(fon_collection_add_byte_array, fon_collection_get_byte_array, ByteArray, u8);
+impl_array_ops!(fon_collection_add_short_array, fon_collection_get_short_array, ShortArray, i16);
+impl_array_ops!(fon_collection_add_uint_array, fon_collection_get_uint_array, UIntArray, u32);
+impl_array_ops!(fon_collection_add_long_array, fon_collection_get_long_array, LongArray, i64);
+impl_array_ops!(fon_collection_add_ulong_array, fon_collection_get_ulong_array, ULongArray, u64);
+impl_array_ops!(fon_collection_add_double_array, fon_collection_get_double_array, DoubleArray, f64);
+
+
+// bool[] is marshalled as a u8 buffer (0/1) since Vec<bool> is not FFI-safe.
+#[no_mangle]
+pub extern "C" fn fon_collection_add_bool_array(
+    collection: *mut c_void,
+    key: *const c_char,
+    values: *const u8,
+    count: i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || key.is_null() || count < 0 || (values.is_null() && count > 0) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    let k = match unsafe { cstr_to_str(key) } {
+        Ok(s) => s.to_owned(),
+        Err(e) => {
+            set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+            return FON_ERROR_INVALID_ARGUMENT;
+        }
+    };
+    let vec: Vec<bool> = if count == 0 {
+        Vec::new()
+    } else {
+        unsafe {
+            slice::from_raw_parts(values, count as usize)
+                .iter()
+                .map(|&b| b != 0)
+                .collect()
+        }
+    };
+    unsafe {
+        let c = &mut *(collection as *mut FonCollection);
+        c.add(k, FonValue::BoolArray(vec));
+    }
+    FON_OK
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_collection_get_bool_array(
+    collection: *mut c_void,
+    key: *const c_char,
+    buffer: *mut u8,
+    buffer_size: i64,
+    actual_size: *mut i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || key.is_null() || actual_size.is_null() {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let c = &*(collection as *const FonCollection);
+        let k = match cstr_to_str(key) {
+            Ok(s) => s,
+            Err(e) => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+        };
+        let arr = match c.get(k) {
+            Some(FonValue::BoolArray(v)) => v,
+            _ => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, "Key not found or wrong type");
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+        };
+        *actual_size = arr.len() as i64;
+        if !buffer.is_null() && buffer_size > 0 {
+            let copy_count = (buffer_size as usize).min(arr.len());
+            let dst = slice::from_raw_parts_mut(buffer, copy_count);
+            for (i, v) in arr.iter().take(copy_count).enumerate() {
+                dst[i] = if *v { 1 } else { 0 };
+            }
+        }
+        FON_OK
+    }
+}
+
+
+// string[] elements vary in length, so add takes an array of C strings, and
+// get is split into a count query plus an indexed per-item fetch (each item
+// uses the same nul-terminated-buffer convention as fon_collection_get_string).
+#[no_mangle]
+pub extern "C" fn fon_collection_add_string_array(
+    collection: *mut c_void,
+    key: *const c_char,
+    values: *const *const c_char,
+    count: i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || key.is_null() || count < 0 || (values.is_null() && count > 0) {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    let k = match unsafe { cstr_to_str(key) } {
+        Ok(s) => s.to_owned(),
+        Err(e) => {
+            set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+            return FON_ERROR_INVALID_ARGUMENT;
+        }
+    };
+    let mut vec: Vec<String> = Vec::with_capacity(count.max(0) as usize);
+    unsafe {
+        let ptrs = if count == 0 { &[][..] } else { slice::from_raw_parts(values, count as usize) };
+        for &p in ptrs {
+            match cstr_to_str(p) {
+                Ok(s) => vec.push(s.to_owned()),
+                Err(e) => {
+                    set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+                    return FON_ERROR_INVALID_ARGUMENT;
+                }
+            }
+        }
+        let c = &mut *(collection as *mut FonCollection);
+        c.add(k, FonValue::StringArray(vec));
+    }
+    FON_OK
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_collection_get_string_array_count(
+    collection: *mut c_void,
+    key: *const c_char,
+    count: *mut i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || key.is_null() || count.is_null() {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let c = &*(collection as *const FonCollection);
+        let k = match cstr_to_str(key) {
+            Ok(s) => s,
+            Err(e) => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+        };
+        match c.get(k) {
+            Some(FonValue::StringArray(v)) => {
+                *count = v.len() as i64;
+                FON_OK
+            }
+            _ => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, "Key not found or wrong type");
+                FON_ERROR_INVALID_ARGUMENT
+            }
+        }
+    }
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_collection_get_string_array_item(
+    collection: *mut c_void,
+    key: *const c_char,
+    index: i64,
+    buffer: *mut u8,
+    buffer_size: i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || key.is_null() || buffer.is_null() || buffer_size <= 0 || index < 0 {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let c = &*(collection as *const FonCollection);
+        let k = match cstr_to_str(key) {
+            Ok(s) => s,
+            Err(e) => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+        };
+        let item = match c.get(k) {
+            Some(FonValue::StringArray(v)) => match v.get(index as usize) {
+                Some(s) => s,
+                None => {
+                    set_error(error, FON_ERROR_INVALID_ARGUMENT, "Index out of range");
+                    return FON_ERROR_INVALID_ARGUMENT;
+                }
+            },
+            _ => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, "Key not found or wrong type");
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+        };
+        let bytes = item.as_bytes();
+        let dst = slice::from_raw_parts_mut(buffer, buffer_size as usize);
+        let n = bytes.len().min(dst.len() - 1);
+        dst[..n].copy_from_slice(&bytes[..n]);
+        dst[n] = 0;
+        FON_OK
+    }
 }
 
 
@@ -792,6 +1218,108 @@ pub extern "C" fn fon_collection_get_bool(
                 FON_ERROR_INVALID_ARGUMENT
             }
         }
+    }
+}
+
+
+// Shared shape for scalar getters that don't already have a hand-written
+// counterpart above (byte/short/uint/ulong): look up by key, type-check the
+// variant, and write the value out through an out-pointer.
+macro_rules! impl_scalar_get {
+    ($fn_name:ident, $variant:ident, $elem:ty) => {
+        #[no_mangle]
+        pub extern "C" fn $fn_name(
+            collection: *mut c_void,
+            key: *const c_char,
+            value: *mut $elem,
+            error: *mut FonError,
+        ) -> i32 {
+            if collection.is_null() || key.is_null() || value.is_null() {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+            unsafe {
+                let c = &*(collection as *const FonCollection);
+                let k = match cstr_to_str(key) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+                        return FON_ERROR_INVALID_ARGUMENT;
+                    }
+                };
+                match c.get(k) {
+                    Some(FonValue::$variant(v)) => {
+                        *value = *v;
+                        FON_OK
+                    }
+                    _ => {
+                        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Key not found or wrong type");
+                        FON_ERROR_INVALID_ARGUMENT
+                    }
+                }
+            }
+        }
+    };
+}
+
+impl_scalar_get!(fon_collection_get_byte, Byte, u8);
+impl_scalar_get!(fon_collection_get_short, Short, i16);
+impl_scalar_get!(fon_collection_get_uint, UInt, u32);
+impl_scalar_get!(fon_collection_get_ulong, ULong, u64);
+
+
+/// Reads raw binary data (two-call pattern, see <see cref="fon_collection_get_int_array"/>).
+/// Transparently unpacks a Z85-encoded value into bytes without mutating the stored value.
+#[no_mangle]
+pub extern "C" fn fon_collection_get_raw(
+    collection: *mut c_void,
+    key: *const c_char,
+    buffer: *mut u8,
+    buffer_size: i64,
+    actual_size: *mut i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || key.is_null() || actual_size.is_null() {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let c = &*(collection as *const FonCollection);
+        let k = match cstr_to_str(key) {
+            Ok(s) => s,
+            Err(e) => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+        };
+        let raw = match c.get(k) {
+            Some(FonValue::Raw(r)) => r,
+            _ => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, "Key not found or wrong type");
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+        };
+        let bytes: Vec<u8> = if raw.is_unpacked() {
+            raw.data().to_vec()
+        } else if raw.is_packed() {
+            let mut tmp = RawData::from_encoded(raw.encoded().to_string());
+            match tmp.unpack() {
+                Ok(_) => tmp.data().to_vec(),
+                Err(e) => {
+                    set_error(error, FON_ERROR_PARSE_FAILED, &e.to_string());
+                    return FON_ERROR_PARSE_FAILED;
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        *actual_size = bytes.len() as i64;
+        if !buffer.is_null() && buffer_size > 0 {
+            let copy_count = (buffer_size as usize).min(bytes.len());
+            let dst = slice::from_raw_parts_mut(buffer, copy_count);
+            dst.copy_from_slice(&bytes[..copy_count]);
+        }
+        FON_OK
     }
 }
 
@@ -997,5 +1525,69 @@ pub extern "C" fn fon_collection_get_collection_array(
             }
         }
         FON_OK
+    }
+}
+
+
+// ==================== ENUMERATION / TYPE INTROSPECTION ====================
+//
+// Lets a generic (reflection-driven) caller enumerate an unknown FonCollection:
+// `fon_collection_size` gives the entry count, `fon_collection_key_at` gets
+// the key at a position, and `fon_collection_kind_of` (by key) gives the
+// packed type tag needed to pick the right typed getter.
+
+/// Gets the key name at iteration position `index` (0-based, `0..fon_collection_size`).
+/// The key is written nul-terminated and truncated to fit `buffer_size`.
+#[no_mangle]
+pub extern "C" fn fon_collection_key_at(
+    collection: *mut c_void,
+    index: i64,
+    buffer: *mut u8,
+    buffer_size: i64,
+    error: *mut FonError,
+) -> i32 {
+    if collection.is_null() || buffer.is_null() || buffer_size <= 0 || index < 0 {
+        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
+        return FON_ERROR_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let c = &*(collection as *const FonCollection);
+        let entry = match c.iter().nth(index as usize) {
+            Some(e) => e,
+            None => {
+                set_error(error, FON_ERROR_INVALID_ARGUMENT, "Index out of range");
+                return FON_ERROR_INVALID_ARGUMENT;
+            }
+        };
+        let key_bytes = entry.0.as_bytes();
+        let dst = slice::from_raw_parts_mut(buffer, buffer_size as usize);
+        let n = key_bytes.len().min(dst.len() - 1);
+        dst[..n].copy_from_slice(&key_bytes[..n]);
+        dst[n] = 0;
+        FON_OK
+    }
+}
+
+
+/// Gets the packed type tag (low byte = TYPE_* char, bit 8 = is-array flag) of the
+/// value stored under `key`. Returns -1 if the key is missing or invalid.
+#[no_mangle]
+pub extern "C" fn fon_collection_kind_of(collection: *mut c_void, key: *const c_char) -> i32 {
+    if collection.is_null() || key.is_null() {
+        return -1;
+    }
+    unsafe {
+        let c = &*(collection as *const FonCollection);
+        let k = match cstr_to_str(key) {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        match c.get(k) {
+            Some(v) => {
+                let (t, arr) = value_kind(v);
+                pack_kind(t, arr)
+            }
+            None => -1,
+        }
     }
 }

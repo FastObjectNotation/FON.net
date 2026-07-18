@@ -11,8 +11,4 @@
 		<Optimize>true</Optimize>
 	</PropertyGroup>
 
-	<ItemGroup>
-		<ProjectReference Include="..\FON\FON.csproj" />
-	</ItemGroup>
-
 </Project>

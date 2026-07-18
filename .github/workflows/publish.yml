@@ -27,14 +27,20 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Detected version: $VERSION"
 
-    - name: Verify native crate versions match product version
+    - name: Verify native shim and core crate versions agree
       run: |
+        # The .NET package version (VersionPrefix) and the native crate version are
+        # intentionally decoupled since FON.net became a fully native wrapper: the
+        # package can gain wrapper-only releases (e.g. new managed API surface)
+        # without requiring a native crate bump. What must still agree is the shim
+        # (FON.Native/Cargo.toml) and the pinned core (fon-rust submodule) it builds
+        # against, since a mismatch there usually means the submodule pin is stale.
         VERSION="${{ steps.get_version.outputs.version }}"
         SHIM=$(grep -m1 -oP '(?<=^version = ")[^"]+' FON.Native/Cargo.toml)
         LIB=$(grep -m1 -oP '(?<=^version = ")[^"]+' FON.Native/fon-rust/Cargo.toml)
         echo "product=$VERSION shim=$SHIM lib=$LIB"
-        if [ "$SHIM" != "$VERSION" ] || [ "$LIB" != "$VERSION" ]; then
-          echo "::error::Native version mismatch (product=$VERSION shim=$SHIM lib=$LIB)"
+        if [ "$SHIM" != "$LIB" ]; then
+          echo "::error::Native shim/core version mismatch (shim=$SHIM lib=$LIB)"
           exit 1
         fi
 
@@ -142,7 +148,9 @@ jobs:
       run: dotnet build --configuration Release
 
     - name: Copy native library for tests
-      run: cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
+      run: |
+        cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
+        cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Test/bin/Release/net10.0/
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -180,7 +188,9 @@ jobs:
       run: dotnet build --configuration Release
 
     - name: Copy native library for tests
-      run: cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
+      run: |
+        cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
+        cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Test/bin/Release/net10.0/
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -309,7 +319,9 @@ jobs:
       run: dotnet build --configuration Release
 
     - name: Copy native library for tests
-      run: cp FON.Native/target/release/libfon_native.dylib FON.Tests/FON.Native.Test/bin/Release/net10.0/
+      run: |
+        cp FON.Native/target/release/libfon_native.dylib FON.Tests/FON.Native.Test/bin/Release/net10.0/
+        cp FON.Native/target/release/libfon_native.dylib FON.Tests/FON.Test/bin/Release/net10.0/
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal

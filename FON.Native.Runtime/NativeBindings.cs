@@ -72,6 +72,15 @@ public static class NativeBindings {
     public static extern IntPtr fon_dump_get(IntPtr dump, ulong index);
 
 
+    /// <summary>
+    /// Gets the record id stored at iteration position <paramref name="position"/> (0-based,
+    /// <c>0..fon_dump_size(dump)</c>). Combine with <see cref="fon_dump_get"/> to enumerate a
+    /// dump without assuming ids are contiguous. Returns a non-zero code if out of range.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int fon_dump_id_at(IntPtr dump, long position, out ulong id);
+
+
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr fon_collection_create();
 
@@ -287,6 +296,65 @@ public static class NativeBindings {
     );
 
 
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_byte(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, byte value, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_short(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, short value, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_uint(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, uint value, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_ulong(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, ulong value, ref FonError error);
+
+
+    /// <summary>Adds raw binary data (copied) under <paramref name="key"/>.</summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern unsafe int fon_collection_add_raw(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, byte* data, long len, ref FonError error);
+
+
+    // Fixed-width array add operations. Each copies `values[0..count]` into a new native array value.
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_byte_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, byte[] values, long count, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_short_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, short[] values, long count, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_uint_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, uint[] values, long count, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_long_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, long[] values, long count, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_ulong_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, ulong[] values, long count, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_double_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, double[] values, long count, ref FonError error);
+
+
+    /// <summary>bool[] is marshalled as a byte buffer (0/1).</summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_bool_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, byte[] values, long count, ref FonError error);
+
+
+    /// <summary>
+    /// <paramref name="values"/> is an array of pointers to nul-terminated UTF-8 buffers
+    /// (the marshaler cannot convert <c>string[]</c> directly to <c>LPUTF8Str[]</c>); the
+    /// caller is responsible for allocating/freeing those buffers, e.g. via
+    /// <see cref="System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8"/>.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_add_string_array(
+        IntPtr collection,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
+        IntPtr[] values,
+        long count,
+        ref FonError error
+    );
+
+
 
     // ==================== COLLECTION GET OPERATIONS ====================
 
@@ -396,4 +464,70 @@ public static class NativeBindings {
         out long actualSize,
         ref FonError error
     );
+
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_byte(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, out byte value, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_short(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, out short value, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_uint(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, out uint value, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_ulong(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, out ulong value, ref FonError error);
+
+
+    /// <summary>Reads raw binary data (two-call pattern, see <see cref="fon_collection_get_int_array"/>).</summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_raw(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, [Out] byte[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+
+
+    // Fixed-width array get operations (two-call pattern, see fon_collection_get_int_array).
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_byte_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, [Out] byte[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_short_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, [Out] short[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_uint_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, [Out] uint[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_long_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, [Out] long[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_ulong_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, [Out] ulong[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_double_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, [Out] double[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_bool_array(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, [Out] byte[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+
+
+    // string[] elements vary in length: query the count, then fetch each item by index
+    // into a nul-terminated buffer (same convention as fon_collection_get_string).
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_string_array_count(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, out long count, ref FonError error);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_get_string_array_item(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key, long index, [Out] byte[] buffer, long bufferSize, ref FonError error);
+
+
+
+    // ==================== ENUMERATION / TYPE INTROSPECTION ====================
+
+    /// <summary>Gets the key name at iteration position <paramref name="index"/> (0-based, <c>0..fon_collection_size</c>).</summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_key_at(IntPtr collection, long index, [Out] byte[] buffer, long bufferSize, ref FonError error);
+
+    /// <summary>
+    /// Gets the packed type tag of the value under <paramref name="key"/>: low byte is the
+    /// TYPE_* char (e.g. 'i', 's', 'o'), bit 0x100 is set if the value is an array of that type.
+    /// Returns -1 if the key is missing.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    public static extern int fon_collection_kind_of(IntPtr collection, [MarshalAs(UnmanagedType.LPUTF8Str)] string key);
 }

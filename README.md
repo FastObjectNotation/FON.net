@@ -1,31 +1,24 @@
 # FON — Fast Object Notation
 
-FON is a fast, human-readable serialization format — a compact alternative to JSON for record-style data. Each line in a `.fon` file is one self-describing record of typed `key=type:value` pairs. This library provides high-performance serialization and deserialization for .NET, with parallel processing across CPU cores and optional native acceleration for maximum throughput.
+FON is a fast, human-readable serialization format — a compact alternative to JSON for record-style data. Each line in a `.fon` file is one self-describing record of typed `key=type:value` pairs. This library provides native-speed serialization and deserialization for .NET, backed by a native core that parallelizes across CPU cores.
 
 ## Features
 
-- **High performance** — parallel serialization/deserialization across CPU cores
-- **Zero-allocation managed parsing** — uses `Span<T>`, `stackalloc`, and `ArrayPool`
-- **Native acceleration** — optional native library for even faster processing
-- **Cross-platform** — Windows, Linux, macOS (x64 and ARM64)
+- **High performance** — parallel serialization/deserialization across CPU cores, ~2 GB/s throughput
 - **Simple, human-readable format** — typed `key=type:value` pairs, one record per line
+- **Cross-platform** — Windows, Linux, macOS (x64 and ARM64)
+- **Deterministic memory management** — `FonDump` and `FonCollection` are `IDisposable` and report their native memory footprint to the GC, so they're reclaimed promptly even without an explicit `Dispose`
 
 ## Installation
 
-### Basic (Managed Only)
-
 ```bash
-dotnet add package FastObjectNotation --version 0.3.0
-```
-
-### With Native Acceleration (Recommended for large datasets)
-
-```bash
-dotnet add package FastObjectNotation --version 0.3.0
+dotnet add package FastObjectNotation --version 0.4.0
 dotnet add package FastObjectNotation.Native --version 0.3.0
 ```
 
-The `FastObjectNotation.Native` package automatically includes native binaries for all supported platforms.
+`FastObjectNotation` is the library itself; `FastObjectNotation.Native` bundles the native runtime for every supported platform (Windows, Linux, Linux musl, macOS — x64 and ARM64). Both are required — there's no managed-only mode.
+
+If you only need one platform, install `FastObjectNotation.Native.Runtime` plus the single matching `FastObjectNotation.Native.{rid}` package instead of the all-platforms meta-package (see [Package Structure](#package-structure)).
 
 ## Quick Start
 
@@ -34,7 +27,7 @@ using FON.Core;
 using FON.Types;
 
 // Create a collection
-var collection = new FonCollection();
+using var collection = new FonCollection();
 collection.Add("id", 42);
 collection.Add("name", "Test Item");
 collection.Add("price", 99.99);
@@ -46,23 +39,44 @@ var text = Fon.SerializeToString(collection);
 // Result: id=i:42,name=s:"Test Item",price=d:99.99,active=b:1,tags=s:["sale","featured"]
 
 // Create a dump (multiple records)
-var dump = new FonDump();
+using var dump = new FonDump();
 dump.TryAdd(0, collection);
 dump.TryAdd(1, new FonCollection { { "id", 1 }, { "text", "Hello" } });
 dump.TryAdd(2, new FonCollection { { "id", 2 }, { "text", "World" } });
 
-// Serialize to file (auto-selects best method)
+// Serialize to file (auto-selects the best method)
 await Fon.SerializeToFileAutoAsync(dump, new FileInfo("data.fon"));
 
 // Deserialize from file
-var loaded = await Fon.DeserializeFromFileAutoAsync(new FileInfo("data.fon"));
+using var loaded = await Fon.DeserializeFromFileAutoAsync(new FileInfo("data.fon"));
 
 // Access data
-foreach (var (key, record) in loaded.FonObjects) {
+foreach (var (key, record) in loaded) {
     var id = record.Get<int>("id");
     Console.WriteLine($"Record {key}: id={id}");
 }
 ```
+
+You can also parse and serialize in memory, without touching the filesystem:
+
+```csharp
+using var dump = Fon.Deserialize(text);
+using var record = Fon.DeserializeCollection("id=i:1,name=s:\"Bob\"");
+```
+
+### Disposal
+
+`FonDump` and `FonCollection` wrap a native handle and implement `IDisposable`. Wrap them in `using` so the native memory is freed deterministically:
+
+```csharp
+using var dump = await Fon.DeserializeFromFileAutoAsync(file);
+```
+
+If you forget, the handle's critical finalizer still frees the native memory eventually, and the GC is told about the native memory via `GC.AddMemoryPressure` so it collects promptly rather than waiting on managed-heap pressure alone — but an explicit `using` is always preferable for predictable cleanup.
+
+A `FonCollection` obtained from another one — via `Get<FonCollection>(key)`, a `List<FonCollection>` element, or dump enumeration — is a *borrowed view* into its parent's native memory. Don't use it after the parent is disposed. Nesting a `FonCollection` into another (`Add(key, childCollection)`, or into a `FonDump`) transfers ownership: the child becomes part of the parent's tree and disposing it separately afterward is a safe no-op.
+
+The native store is append-only: overwriting an existing key/id or calling `Remove` throws `NotSupportedException`.
 
 ## Supported Types
 
@@ -81,7 +95,7 @@ foreach (var (key, record) in loaded.FonObjects) {
 | `RawData` | `r` | `data=r:"nm=QNzv..."` |
 | `FonCollection` | `o` | `user=o:{id=i:1,name=s:"Bob"}` |
 
-All primitive and string types support arrays (`values=i:[1,2,3,4,5]`). Nested objects also support arrays of objects (`items=o:[{id=i:1},{id=i:2}]`).
+Numeric types support arrays (`values=i:[1,2,3,4,5]`), and nested objects support arrays of objects (`items=o:[{id=i:1},{id=i:2}]`). `List<string>` and `List<bool>` can be built and read back in memory, and serialize to valid FON text, but that text cannot currently be parsed back — the underlying parser only accepts array syntax for numeric element types. Prefer scalar `string`/`bool` fields, or a nested object, where a round-trip through text is needed.
 
 ## Format Specification
 
@@ -100,7 +114,7 @@ Each line in a `.fon` file represents one record. Records are indexed by line nu
 name=s:"John",age=i:30,balance=d:1234.56
 
 # Arrays
-scores=i:[95,87,92,88],tags=s:["admin","user"]
+scores=i:[95,87,92,88]
 
 # Binary data (Z85 encoded)
 image=r:"nm=QNzv..."
@@ -122,32 +136,36 @@ empty=o:{},none=o:[]
 ### Serialization
 
 ```csharp
-// Serialize collection to string
+// Serialize a single record to a string
 string text = Fon.SerializeToString(collection);
+
+// Serialize an entire dump to a string
+string text = Fon.SerializeToString(dump);
 
 // Auto-select best method based on data size (recommended)
 await Fon.SerializeToFileAutoAsync(dump, file);
 
-// Pipeline method - best for small datasets (<2000 records)
+// Pipeline / Chunked / plain variants also exist for source compatibility;
+// all route through the same native file writer.
 await Fon.SerializeToFilePipelineAsync(dump, file);
-
-// Chunked method - best for large datasets, lower memory pressure
 await Fon.SerializeToFileChunkedAsync(dump, file, chunkSize: 1000);
-
-// Basic parallel serialization
 await Fon.SerializeToFileAsync(dump, file);
 ```
 
 ### Deserialization
 
 ```csharp
+// In memory
+FonDump dump = Fon.Deserialize(text);
+FonDump dump = Fon.Deserialize(utf8Bytes);
+FonCollection record = Fon.DeserializeCollection(text);
+
 // Auto-select best method based on file size (recommended)
 var dump = await Fon.DeserializeFromFileAutoAsync(file);
 
-// Load entire file, parse in parallel - best for files <500MB
+// Async variants also exist for source compatibility; all route through
+// the same native file parser.
 var dump = await Fon.DeserializeFromFileAsync(file);
-
-// Stream file in chunks - best for very large files
 var dump = await Fon.DeserializeFromFileChunkedAsync(file, chunkSize: 10000);
 ```
 
@@ -157,24 +175,17 @@ var dump = await Fon.DeserializeFromFileChunkedAsync(file, chunkSize: 10000);
 // Automatically decompress RawData during deserialization
 Fon.DeserializeRawUnpack = true;
 
-// Adjust threshold for auto method selection (default: 2000)
-Fon.ParallelMethodThreshold = 2000;
-
 // Maximum bracket nesting depth (default: 64)
 Fon.MaxDepth = 64;
 ```
 
-## Native Acceleration
-
-FON includes optional native acceleration for maximum performance.
-
-### Package Structure
+## Package Structure
 
 | Package | Description |
 |---------|-------------|
-| `FastObjectNotation` | Core library (managed, works everywhere) |
-| `FastObjectNotation.Native` | Meta-package that includes all native binaries |
-| `FastObjectNotation.Native.Runtime` | Native runtime interface (included by FastObjectNotation.Native) |
+| `FastObjectNotation` | The library — `FonDump`, `FonCollection`, `RawData`, `Fon` |
+| `FastObjectNotation.Native` | Meta-package that includes native binaries for every supported platform |
+| `FastObjectNotation.Native.Runtime` | Managed P/Invoke layer (included by `FastObjectNotation.Native`) |
 | `FastObjectNotation.Native.win-x64` | Windows x64 native binary |
 | `FastObjectNotation.Native.win-arm64` | Windows ARM64 native binary |
 | `FastObjectNotation.Native.linux-x64` | Linux x64 native binary |
@@ -184,66 +195,26 @@ FON includes optional native acceleration for maximum performance.
 | `FastObjectNotation.Native.osx-x64` | macOS x64 native binary |
 | `FastObjectNotation.Native.osx-arm64` | macOS ARM64 (Apple Silicon) native binary |
 
-### Checking Native Availability
-
-```csharp
-using FON.Acceleration;
-
-if (FonAccelerator.IsAvailable) {
-    Console.WriteLine($"Native acceleration enabled, version: {FonAccelerator.Version}");
-} else {
-    Console.WriteLine("Using managed implementation");
-}
-```
-
-### When to Use Native Acceleration
-
-| Scenario | Recommendation |
-|----------|----------------|
-| Small datasets (<1000 records) | Managed is sufficient |
-| Large datasets (>10000 records) | Native recommended |
-| Memory-constrained environments | Native (lower allocations) |
-| Docker/Alpine containers | Use `linux-musl-*` packages |
-| Cross-platform deployment | Install `FastObjectNotation.Native` for all platforms |
-| Single-platform deployment | Install specific `FastObjectNotation.Native.{rid}` package |
-
-### Platform-Specific Installation
-
-If you only need native support for specific platforms (smaller deployment):
-
-```bash
-# Windows x64 only
-dotnet add package FastObjectNotation.Native.Runtime --version 0.3.0
-dotnet add package FastObjectNotation.Native.win-x64 --version 0.3.0
-
-# Linux x64 only
-dotnet add package FastObjectNotation.Native.Runtime --version 0.3.0
-dotnet add package FastObjectNotation.Native.linux-x64 --version 0.3.0
-
-# Multiple specific platforms
-dotnet add package FastObjectNotation.Native.Runtime --version 0.3.0
-dotnet add package FastObjectNotation.Native.win-x64 --version 0.3.0
-dotnet add package FastObjectNotation.Native.linux-x64 --version 0.3.0
-```
+If the native library can't be found or loaded at runtime, calls into `FonDump`/`FonCollection`/`Fon` throw a `DllNotFoundException` — this almost always means the platform package for your RID isn't installed. In Docker/Alpine images, install the `linux-musl-*` packages, not `linux-*`.
 
 ## Performance Tips
 
-1. **Use Auto methods** - `SerializeToFileAutoAsync` and `DeserializeFromFileAutoAsync` automatically select the best strategy
-
-2. **Adjust parallelism** - Pass `maxDegreeOfParallelism` parameter to control CPU usage:
+1. **Use Auto methods** — `SerializeToFileAutoAsync` and `DeserializeFromFileAutoAsync` let the native core pick the best strategy for the data size.
+2. **Adjust parallelism** — pass `maxDegreeOfParallelism` to control how many threads the native core uses:
    ```csharp
    await Fon.SerializeToFileAutoAsync(dump, file, maxDegreeOfParallelism: 4);
    ```
-
-3. **Reuse FonDump** - Clear and reuse instead of creating new instances
-
-4. **Use RawData for binary** - More efficient than base64 strings for large binary data
+3. **Use RawData for binary** — more efficient than encoding large binary blobs as strings.
+4. **Dispose promptly** — `using` a `FonDump`/`FonCollection` frees native memory immediately instead of waiting for a GC pass.
 
 ## Building from Source
 
 ```bash
 git clone --recurse-submodules https://github.com/FastObjectNotation/FON.net.git
 cd FON.net
+
+# Build the native core
+cargo build --release --manifest-path FON.Native/Cargo.toml
 
 # Build the library
 dotnet build

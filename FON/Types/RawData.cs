@@ -45,6 +45,20 @@ public class RawData : IDisposable {
     public static RawData Create(string data) => new(Encoding.UTF8.GetBytes(data));
 
 
+    /// <summary>
+    /// Returns the plain bytes for handing to the native layer, decoding a Z85-packed
+    /// value into a temporary copy if needed. Does not mutate this instance.
+    /// </summary>
+    internal byte[] ToUnpackedBytes() {
+        if (data.Length > 0 || encoded.Length == 0) {
+            return data;
+        }
+        var temp = new RawData(encoded.AsSpan());
+        temp.Unpack();
+        return temp.data;
+    }
+
+
 
     public RawData Unpack() {
         if (encoded == string.Empty) {

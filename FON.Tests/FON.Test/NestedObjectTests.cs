@@ -1,4 +1,5 @@
 using FON.Core;
+using FON.Native;
 using FON.Types;
 
 namespace FON.Test;
@@ -55,7 +56,7 @@ public class NestedObjectTests {
     [Fact]
     public void Serialize_NestedObject_ProducesObjectLiteral() {
         var inner = new FonCollection { { "x", 1 } };
-        var outer = new FonCollection { { "inner", inner } };
+        using var outer = new FonCollection { { "inner", inner } };
 
         var text = Fon.SerializeToString(outer);
 
@@ -67,7 +68,7 @@ public class NestedObjectTests {
     public void Serialize_TwoLevelNested_ProducesNestedLiteral() {
         var deepest = new FonCollection { { "v", 99 } };
         var middle = new FonCollection { { "deep", deepest } };
-        var outer = new FonCollection { { "mid", middle } };
+        using var outer = new FonCollection { { "mid", middle } };
 
         var text = Fon.SerializeToString(outer);
 
@@ -77,7 +78,7 @@ public class NestedObjectTests {
 
     [Fact]
     public void Serialize_EmptyNestedObject_ProducesEmptyBraces() {
-        var outer = new FonCollection { { "empty", new FonCollection() } };
+        using var outer = new FonCollection { { "empty", new FonCollection() } };
 
         var text = Fon.SerializeToString(outer);
 
@@ -90,14 +91,13 @@ public class NestedObjectTests {
         var inner = new FonCollection { { "x", 1 } };
         var outer = new FonCollection { { "inner", inner } };
 
-        var text = Fon.SerializeToString(outer);
-        var dump = new FonDump();
+        using var dump = new FonDump();
         dump.TryAdd(0, outer);
 
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             Fon.SerializeToFileAuto(dump, tempFile);
-            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+            using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
 
             Assert.Equal(1, loaded.Count);
             var loadedOuter = loaded[0];
@@ -116,13 +116,13 @@ public class NestedObjectTests {
         var l1 = new FonCollection { { "l2", l2 } };
         var l0 = new FonCollection { { "l1", l1 } };
 
-        var dump = new FonDump();
+        using var dump = new FonDump();
         dump.TryAdd(0, l0);
 
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             Fon.SerializeToFileAuto(dump, tempFile);
-            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+            using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
 
             var got = loaded[0]
                 .Get<FonCollection>("l1")
@@ -140,13 +140,13 @@ public class NestedObjectTests {
     public void Deserialize_EmptyNestedObject_RoundTrips() {
         var outer = new FonCollection { { "empty", new FonCollection() } };
 
-        var dump = new FonDump();
+        using var dump = new FonDump();
         dump.TryAdd(0, outer);
 
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             Fon.SerializeToFileAuto(dump, tempFile);
-            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+            using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
 
             var inner = loaded[0].Get<FonCollection>("empty");
             Assert.Equal(0, inner.Count());
@@ -161,8 +161,8 @@ public class NestedObjectTests {
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             File.WriteAllText(tempFile.FullName, "x=o:42\n");
-            var ex = await Assert.ThrowsAsync<AggregateException>(() => Fon.DeserializeFromFileAutoAsync(tempFile));
-            Assert.IsType<FormatException>(ex.InnerException);
+            var ex = await Assert.ThrowsAsync<FonNativeException>(() => Fon.DeserializeFromFileAutoAsync(tempFile));
+            Assert.Equal(FonResultCode.ParseFailed, ex.Code);
         } finally {
             tempFile.Delete();
         }
@@ -178,13 +178,13 @@ public class NestedObjectTests {
         };
         var outer = new FonCollection { { "items", items } };
 
-        var dump = new FonDump();
+        using var dump = new FonDump();
         dump.TryAdd(0, outer);
 
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             Fon.SerializeToFileAuto(dump, tempFile);
-            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+            using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
 
             var loadedItems = loaded[0].Get<List<FonCollection>>("items");
             Assert.Equal(3, loadedItems.Count);
@@ -203,13 +203,13 @@ public class NestedObjectTests {
     public void RoundTrip_EmptyArrayOfObjects() {
         var outer = new FonCollection { { "items", new List<FonCollection>() } };
 
-        var dump = new FonDump();
+        using var dump = new FonDump();
         dump.TryAdd(0, outer);
 
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             Fon.SerializeToFileAuto(dump, tempFile);
-            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+            using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
 
             var items = loaded[0].Get<List<FonCollection>>("items");
             Assert.Empty(items);
@@ -226,13 +226,13 @@ public class NestedObjectTests {
         var middle = new FonCollection { { "list", arr } };
         var outer = new FonCollection { { "wrap", middle } };
 
-        var dump = new FonDump();
+        using var dump = new FonDump();
         dump.TryAdd(0, outer);
 
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             Fon.SerializeToFileAuto(dump, tempFile);
-            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+            using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
 
             var loadedTag = loaded[0]
                 .Get<FonCollection>("wrap")
@@ -261,13 +261,13 @@ public class NestedObjectTests {
         try {
             Fon.MaxDepth = 5;
             var nested = BuildNested(5);
-            var dump = new FonDump();
+            using var dump = new FonDump();
             dump.TryAdd(0, nested);
 
             var tempFile = new FileInfo(Path.GetTempFileName());
             try {
                 Fon.SerializeToFileAuto(dump, tempFile);
-                var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+                using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
                 Assert.Equal(1, loaded.Count);
             } finally {
                 tempFile.Delete();
@@ -284,16 +284,16 @@ public class NestedObjectTests {
         try {
             Fon.MaxDepth = 5;
             var nested = BuildNested(6);
-            var dump = new FonDump();
+            using var dump = new FonDump();
             dump.TryAdd(0, nested);
 
             var tempFile = new FileInfo(Path.GetTempFileName());
             try {
                 Fon.SerializeToFileAuto(dump, tempFile);
-                var ex = await Assert.ThrowsAsync<AggregateException>(
+                var ex = await Assert.ThrowsAsync<FonNativeException>(
                     () => Fon.DeserializeFromFileAutoAsync(tempFile)
                 );
-                Assert.IsType<FormatException>(ex.InnerException);
+                Assert.Equal(FonResultCode.ParseFailed, ex.Code);
             } finally {
                 tempFile.Delete();
             }
@@ -307,20 +307,22 @@ public class NestedObjectTests {
     public async Task Deserialize_DeepArray_AboveMaxDepth_Throws() {
         var original = Fon.MaxDepth;
         try {
-            Fon.MaxDepth = 2;
+            Fon.MaxDepth = 1;
             var tempFile = new FileInfo(Path.GetTempFileName());
             try {
-                // Depth-1 array: should still succeed at MaxDepth=2
-                File.WriteAllText(tempFile.FullName, "a=i:[1,2,3]\n");
-                var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+                // A single level of object-array nesting is within MaxDepth=1: entering the
+                // array's object literal counts as one level; iterating its elements doesn't
+                // add another.
+                File.WriteAllText(tempFile.FullName, "items=o:[{id=i:1}]\n");
+                using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
                 Assert.Equal(1, loaded.Count);
 
-                // Depth-3 construction: array of objects each containing an array. Must throw.
-                File.WriteAllText(tempFile.FullName, "items=o:[{vals=i:[1,2]}]\n");
-                var ex = await Assert.ThrowsAsync<AggregateException>(
+                // A plain nested object inside an array element's object adds a second level. Must throw.
+                File.WriteAllText(tempFile.FullName, "items=o:[{inner=o:{x=i:1}}]\n");
+                var ex = await Assert.ThrowsAsync<FonNativeException>(
                     () => Fon.DeserializeFromFileAutoAsync(tempFile)
                 );
-                Assert.IsType<FormatException>(ex.InnerException);
+                Assert.Equal(FonResultCode.ParseFailed, ex.Code);
             } finally {
                 tempFile.Delete();
             }
@@ -330,60 +332,14 @@ public class NestedObjectTests {
     }
 
 
-    private sealed class TrackingDisposable : IDisposable {
-        public bool Disposed { get; private set; }
-        public void Dispose() => Disposed = true;
-    }
-
-
     [Fact]
-    public void Dispose_DisposesNestedFonCollections() {
+    public void Dispose_ThenAccessNestedCollection_ThrowsObjectDisposed() {
         var inner = new FonCollection();
         var outer = new FonCollection { { "inner", inner } };
 
-        // Add a tracker into inner so we can detect its Dispose
-        var tracker = new TrackingDisposable();
-        inner.Add("tracker", tracker);
-
         outer.Dispose();
 
-        Assert.True(tracker.Disposed);
-    }
-
-
-    [Fact]
-    public void Dispose_DisposesElementsOfDisposableLists() {
-        var t1 = new TrackingDisposable();
-        var t2 = new TrackingDisposable();
-
-        var collection = new FonCollection {
-            { "items", new List<TrackingDisposable> { t1, t2 } }
-        };
-
-        collection.Dispose();
-
-        Assert.True(t1.Disposed);
-        Assert.True(t2.Disposed);
-    }
-
-
-    [Fact]
-    public void Dispose_DisposesNestedCollectionsInsideLists() {
-        var c1 = new FonCollection();
-        var c2 = new FonCollection();
-        var t1 = new TrackingDisposable();
-        var t2 = new TrackingDisposable();
-        c1.Add("t", t1);
-        c2.Add("t", t2);
-
-        var outer = new FonCollection {
-            { "items", new List<FonCollection> { c1, c2 } }
-        };
-
-        outer.Dispose();
-
-        Assert.True(t1.Disposed);
-        Assert.True(t2.Disposed);
+        Assert.Throws<ObjectDisposedException>(() => outer.Get<FonCollection>("inner"));
     }
 
 
@@ -399,13 +355,13 @@ public class NestedObjectTests {
         var inner = new FonCollection { { "txt", payload } };
         var outer = new FonCollection { { "wrap", inner } };
 
-        var dump = new FonDump();
+        using var dump = new FonDump();
         dump.TryAdd(0, outer);
 
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             Fon.SerializeToFileAuto(dump, tempFile);
-            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+            using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
 
             var got = loaded[0].Get<FonCollection>("wrap").Get<string>("txt");
             Assert.Equal(payload, got);
@@ -421,13 +377,13 @@ public class NestedObjectTests {
         var inner = new FonCollection { { "txt", payload } };
         var outer = new FonCollection { { "wrap", inner } };
 
-        var dump = new FonDump();
+        using var dump = new FonDump();
         dump.TryAdd(0, outer);
 
         var tempFile = new FileInfo(Path.GetTempFileName());
         try {
             Fon.SerializeToFileAuto(dump, tempFile);
-            var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
+            using var loaded = Fon.DeserializeFromFileAutoAsync(tempFile).GetAwaiter().GetResult();
 
             var got = loaded[0].Get<FonCollection>("wrap").Get<string>("txt");
             Assert.Equal(payload, got);
@@ -480,7 +436,7 @@ public class NestedObjectTests {
 
     [Fact]
     public async Task RoundTrip_AllSerializeMethods_NestedData() {
-        var dump = BuildNestedDump(10);
+        using var dump = BuildNestedDump(10);
 
         var f1 = new FileInfo(Path.GetTempFileName());
         var f2 = new FileInfo(Path.GetTempFileName());
@@ -512,15 +468,15 @@ public class NestedObjectTests {
 
     [Fact]
     public async Task RoundTrip_AllDeserializeMethods_NestedData() {
-        var dump = BuildNestedDump(10);
+        using var dump = BuildNestedDump(10);
 
         var file = new FileInfo(Path.GetTempFileName());
         try {
             await Fon.SerializeToFileAutoAsync(dump, file);
 
-            var loaded1 = await Fon.DeserializeFromFileAsync(file);
-            var loaded2 = await Fon.DeserializeFromFileChunkedAsync(file, chunkSize: 4);
-            var loaded3 = await Fon.DeserializeFromFileAutoAsync(file);
+            using var loaded1 = await Fon.DeserializeFromFileAsync(file);
+            using var loaded2 = await Fon.DeserializeFromFileChunkedAsync(file, chunkSize: 4);
+            using var loaded3 = await Fon.DeserializeFromFileAutoAsync(file);
 
             AssertDumpEquals(dump, loaded1);
             AssertDumpEquals(dump, loaded2);
@@ -533,12 +489,12 @@ public class NestedObjectTests {
 
     [Fact]
     public async Task RoundTrip_LargeNestedDump_UnderParallelism() {
-        var dump = BuildNestedDump(5000);
+        using var dump = BuildNestedDump(5000);
 
         var file = new FileInfo(Path.GetTempFileName());
         try {
             await Fon.SerializeToFileAutoAsync(dump, file);
-            var loaded = await Fon.DeserializeFromFileAutoAsync(file);
+            using var loaded = await Fon.DeserializeFromFileAutoAsync(file);
             AssertDumpEquals(dump, loaded);
         } finally {
             file.Delete();
