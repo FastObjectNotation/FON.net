@@ -19,6 +19,8 @@ public class NativeAvailabilityTests {
     [Fact]
     public void NativeLibrary_HasVersion() {
         var version = NativeLoader.GetVersion();
-        Assert.Equal("0.3.0", version);
+        // Don't pin an exact version — assert the native library reports a well-formed
+        // semver string, so routine version bumps don't break this test.
+        Assert.Matches(@"^\d+\.\d+\.\d+$", version);
     }
 }

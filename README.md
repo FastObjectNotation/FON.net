@@ -12,7 +12,7 @@ FON is a fast, human-readable serialization format — a compact alternative to 
 ## Installation
 
 ```bash
-dotnet add package FastObjectNotation --version 0.4.0
+dotnet add package FastObjectNotation
 ```
 
 One package. It ships with native binaries for every supported platform (Windows, Linux, Linux musl, macOS — x64 and ARM64); NuGet picks the right one for your project's RID at restore time.
@@ -92,7 +92,7 @@ The native store is append-only: overwriting an existing key/id or calling `Remo
 | `RawData` | `r` | `data=r:"nm=QNzv..."` |
 | `FonCollection` | `o` | `user=o:{id=i:1,name=s:"Bob"}` |
 
-Numeric types support arrays (`values=i:[1,2,3,4,5]`), and nested objects support arrays of objects (`items=o:[{id=i:1},{id=i:2}]`). `List<string>` and `List<bool>` can be built and read back in memory, and serialize to valid FON text, but that text cannot currently be parsed back — the underlying parser only accepts array syntax for numeric element types. Prefer scalar `string`/`bool` fields, or a nested object, where a round-trip through text is needed.
+All primitive types support arrays — numeric (`values=i:[1,2,3,4,5]`), `string` (`tags=s:["sale","featured"]`), and `bool` (`flags=b:[1,0]`) — and nested objects support arrays of objects (`items=o:[{id=i:1},{id=i:2}]`). Every array form round-trips through both the in-memory API and the text format.
 
 ## Format Specification
 

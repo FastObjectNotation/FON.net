@@ -37,13 +37,11 @@ public class FonSerializationTests {
 
     [Fact]
     public async Task SerializeAndDeserialize_Arrays_RoundTrips() {
-        // Note: string[] and bool[] are deliberately not included here — the pinned native
-        // fon-rust text parser only understands array syntax for numeric element types
-        // ('s:[...]'/'b:[...]' fail to parse back from text; see FonCollection_AddAndSerialize
-        // tests below for the one-way in-memory-to-text behavior of those two).
         using var collection = new FonCollection {
             { "numbers", new List<int> { 1, 2, 3, 4, 5 } },
-            { "values", new List<float> { 1.1f, 2.2f, 3.3f } }
+            { "values", new List<float> { 1.1f, 2.2f, 3.3f } },
+            { "names", new List<string> { "Alice", "Bob" } },
+            { "flags", new List<bool> { true, false } }
         };
 
         using var dump = new FonDump();
@@ -58,6 +56,8 @@ public class FonSerializationTests {
             var loaded = result[0];
             Assert.Equal(new List<int> { 1, 2, 3, 4, 5 }, loaded.Get<List<int>>("numbers"));
             Assert.Equal(new List<float> { 1.1f, 2.2f, 3.3f }, loaded.Get<List<float>>("values"));
+            Assert.Equal(new List<string> { "Alice", "Bob" }, loaded.Get<List<string>>("names"));
+            Assert.Equal(new List<bool> { true, false }, loaded.Get<List<bool>>("flags"));
         } finally {
             tempFile.Delete();
         }
@@ -65,26 +65,30 @@ public class FonSerializationTests {
 
 
     [Fact]
-    public void StringArray_And_BoolArray_SerializeToText_ButCannotBeParsedBack() {
-        // Documents a known limitation of the pinned native fon-rust parser: string[] and
-        // bool[] can be built and read back in-memory (no text round-trip involved), and
-        // they serialize to valid-looking FON text, but that text cannot be parsed back —
-        // the native parser only supports array syntax for numeric element types.
+    public void StringArray_And_BoolArray_RoundTripThroughText() {
+        // string[] and bool[] round-trip through the text format: build, serialize to
+        // FON text, and parse back. The elements exercise the quote-aware array parser —
+        // one contains a comma (must not be treated as an element separator) and one
+        // contains an escaped quote. (Core array parsing for 's:[...]'/'b:[...]' landed
+        // in fon-rust 0.3.1.)
+        var names = new List<string> { "Alice", "Bob, Jr.", "she said \"hi\"" };
+        var flags = new List<bool> { true, false, true };
+
         using var collection = new FonCollection {
-            { "names", new List<string> { "Alice", "Bob" } },
-            { "flags", new List<bool> { true, false } }
+            { "names", names },
+            { "flags", flags }
         };
 
-        // In-memory add/get works without going through the text format at all.
-        Assert.Equal(new List<string> { "Alice", "Bob" }, collection.Get<List<string>>("names"));
-        Assert.Equal(new List<bool> { true, false }, collection.Get<List<bool>>("flags"));
+        Assert.Equal(names, collection.Get<List<string>>("names"));
+        Assert.Equal(flags, collection.Get<List<bool>>("flags"));
 
         var text = Fon.SerializeToString(collection);
         Assert.Contains("names=s:[", text);
         Assert.Contains("flags=b:[", text);
 
-        var ex = Assert.Throws<FON.Native.FonNativeException>(() => Fon.DeserializeCollection(text));
-        Assert.Equal(FON.Native.FonResultCode.ParseFailed, ex.Code);
+        using var parsed = Fon.DeserializeCollection(text);
+        Assert.Equal(names, parsed.Get<List<string>>("names"));
+        Assert.Equal(flags, parsed.Get<List<bool>>("flags"));
     }
 
 
