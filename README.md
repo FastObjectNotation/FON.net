@@ -7,7 +7,7 @@ FON is a fast, human-readable serialization format — a compact alternative to 
 - **High performance** — parallel serialization/deserialization across CPU cores, ~2 GB/s throughput
 - **Simple, human-readable format** — typed `key=type:value` pairs, one record per line
 - **Cross-platform** — Windows, Linux, macOS (x64 and ARM64)
-- **Deterministic memory management** — `FonDump` and `FonCollection` are `IDisposable` and report their native memory footprint to the GC, so they're reclaimed promptly even without an explicit `Dispose`
+- **Deterministic memory management** — `FonDump` and `FonCollection` are `IDisposable`; a `using` frees their native memory the moment you're done, with a critical finalizer as a safety net if you forget
 
 ## Installation
 
@@ -69,7 +69,7 @@ using var record = Fon.DeserializeCollection("id=i:1,name=s:\"Bob\"");
 using var dump = await Fon.DeserializeFromFileAutoAsync(file);
 ```
 
-If you forget, the handle's critical finalizer still frees the native memory eventually, and the GC is told about the native memory via `GC.AddMemoryPressure` so it collects promptly rather than waiting on managed-heap pressure alone — but an explicit `using` is always preferable for predictable cleanup.
+If you forget, the handle's critical finalizer frees the native memory eventually, and `GC.AddMemoryPressure` tells the GC about it so a collection is more likely to be triggered. But finalization is non-deterministic — until it runs, the native memory stays allocated (the managed heap can't see it), which adds up fast when you're holding large dumps. Treat the finalizer as a safety net, not a substitute for `using`.
 
 A `FonCollection` obtained from another one — via `Get<FonCollection>(key)`, a `List<FonCollection>` element, or dump enumeration — is a *borrowed view* into its parent's native memory. Don't use it after the parent is disposed. Nesting a `FonCollection` into another (`Add(key, childCollection)`, or into a `FonDump`) transfers ownership: the child becomes part of the parent's tree and disposing it separately afterward is a safe no-op.
 
