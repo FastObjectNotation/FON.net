@@ -6,13 +6,42 @@
 		<AssemblyName>FON</AssemblyName>
 		<PackageId>FastObjectNotation</PackageId>
 		<Title>FON — Fast Object Notation</Title>
-		<PackageDescription>Fast Object Notation (FON) — high-performance, human-readable serialization for .NET, backed by a native core parallelized across CPU cores. Supports all primitive types, arrays, nested objects, and binary data. Requires a native runtime package (FastObjectNotation.Native or a platform-specific FastObjectNotation.Native.{rid}).</PackageDescription>
+		<PackageDescription>Fast Object Notation (FON) — high-performance, human-readable serialization for .NET, backed by a native core parallelized across CPU cores. Supports all primitive types, arrays, nested objects, and binary data. Ships with native binaries for Windows, Linux, Linux musl, and macOS (x64 and ARM64).</PackageDescription>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Optimize>true</Optimize>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\FON.Native.Runtime\FON.Native.Runtime.csproj" />
+		<!--
+			Per-RID native runtime assets. Populated under runtimes\{rid}\native\ locally or
+			by CI (one subfolder per platform) before `dotnet pack`; NuGet resolves the right
+			one at restore time based on the consuming project's RID.
+		-->
+		<None Include="$(MSBuildThisFileDirectory)runtimes\**"
+		      Pack="true"
+		      PackagePath="runtimes"
+		      Condition="Exists('$(MSBuildThisFileDirectory)runtimes')" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!--
+			Local dev / CI convenience: once cargo produces a release build of the native shim
+			for the current platform, copy it next to FON.dll so this project (and anything
+			that references it, e.g. the test projects) can load it without a manual copy step.
+			Exactly one of these three exists on any given platform.
+		-->
+		<None Include="$(MSBuildThisFileDirectory)..\FON.Native\target\release\fon_native.dll"
+		      Condition="Exists('$(MSBuildThisFileDirectory)..\FON.Native\target\release\fon_native.dll')"
+		      CopyToOutputDirectory="PreserveNewest"
+		      Visible="false" />
+		<None Include="$(MSBuildThisFileDirectory)..\FON.Native\target\release\libfon_native.so"
+		      Condition="Exists('$(MSBuildThisFileDirectory)..\FON.Native\target\release\libfon_native.so')"
+		      CopyToOutputDirectory="PreserveNewest"
+		      Visible="false" />
+		<None Include="$(MSBuildThisFileDirectory)..\FON.Native\target\release\libfon_native.dylib"
+		      Condition="Exists('$(MSBuildThisFileDirectory)..\FON.Native\target\release\libfon_native.dylib')"
+		      CopyToOutputDirectory="PreserveNewest"
+		      Visible="false" />
 	</ItemGroup>
 
 </Project>

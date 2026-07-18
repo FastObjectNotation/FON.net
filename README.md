@@ -13,12 +13,9 @@ FON is a fast, human-readable serialization format — a compact alternative to 
 
 ```bash
 dotnet add package FastObjectNotation --version 0.4.0
-dotnet add package FastObjectNotation.Native --version 0.3.0
 ```
 
-`FastObjectNotation` is the library itself; `FastObjectNotation.Native` bundles the native runtime for every supported platform (Windows, Linux, Linux musl, macOS — x64 and ARM64). Both are required — there's no managed-only mode.
-
-If you only need one platform, install `FastObjectNotation.Native.Runtime` plus the single matching `FastObjectNotation.Native.{rid}` package instead of the all-platforms meta-package (see [Package Structure](#package-structure)).
+One package. It ships with native binaries for every supported platform (Windows, Linux, Linux musl, macOS — x64 and ARM64); NuGet picks the right one for your project's RID at restore time.
 
 ## Quick Start
 
@@ -179,23 +176,11 @@ Fon.DeserializeRawUnpack = true;
 Fon.MaxDepth = 64;
 ```
 
-## Package Structure
+## Platform Support
 
-| Package | Description |
-|---------|-------------|
-| `FastObjectNotation` | The library — `FonDump`, `FonCollection`, `RawData`, `Fon` |
-| `FastObjectNotation.Native` | Meta-package that includes native binaries for every supported platform |
-| `FastObjectNotation.Native.Runtime` | Managed P/Invoke layer (included by `FastObjectNotation.Native`) |
-| `FastObjectNotation.Native.win-x64` | Windows x64 native binary |
-| `FastObjectNotation.Native.win-arm64` | Windows ARM64 native binary |
-| `FastObjectNotation.Native.linux-x64` | Linux x64 native binary |
-| `FastObjectNotation.Native.linux-arm64` | Linux ARM64 native binary |
-| `FastObjectNotation.Native.linux-musl-x64` | Alpine Linux x64 native binary |
-| `FastObjectNotation.Native.linux-musl-arm64` | Alpine Linux ARM64 native binary |
-| `FastObjectNotation.Native.osx-x64` | macOS x64 native binary |
-| `FastObjectNotation.Native.osx-arm64` | macOS ARM64 (Apple Silicon) native binary |
+The `FastObjectNotation` package embeds native binaries for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `linux-musl-x64`, `linux-musl-arm64`, `osx-x64`, and `osx-arm64` under `runtimes/{rid}/native/`. NuGet copies the one matching your project's runtime identifier at restore/publish time — nothing else to configure.
 
-If the native library can't be found or loaded at runtime, calls into `FonDump`/`FonCollection`/`Fon` throw a `DllNotFoundException` — this almost always means the platform package for your RID isn't installed. In Docker/Alpine images, install the `linux-musl-*` packages, not `linux-*`.
+If the native library can't be found or loaded at runtime, calls into `FonDump`/`FonCollection`/`Fon` throw a `DllNotFoundException` — this almost always means the project was published for a RID this package doesn't cover, or (in Docker/Alpine images) that the app was published as `linux-x64` instead of `linux-musl-x64`.
 
 ## Performance Tips
 

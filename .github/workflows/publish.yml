@@ -147,11 +147,6 @@ jobs:
     - name: Build .NET
       run: dotnet build --configuration Release
 
-    - name: Copy native library for tests
-      run: |
-        cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
-        cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Test/bin/Release/net10.0/
-
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
 
@@ -186,11 +181,6 @@ jobs:
 
     - name: Build .NET
       run: dotnet build --configuration Release
-
-    - name: Copy native library for tests
-      run: |
-        cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Native.Test/bin/Release/net10.0/
-        cp FON.Native/target/release/libfon_native.so FON.Tests/FON.Test/bin/Release/net10.0/
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -318,11 +308,6 @@ jobs:
     - name: Build .NET
       run: dotnet build --configuration Release
 
-    - name: Copy native library for tests
-      run: |
-        cp FON.Native/target/release/libfon_native.dylib FON.Tests/FON.Native.Test/bin/Release/net10.0/
-        cp FON.Native/target/release/libfon_native.dylib FON.Tests/FON.Test/bin/Release/net10.0/
-
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
 
@@ -365,39 +350,31 @@ jobs:
       with:
         path: artifacts
 
-    - name: Copy native binaries to platform packages
+    - name: Copy native binaries into the FON package's runtime assets
       run: |
-        # Windows x64
-        mkdir -p FON.Native.Platforms/FON.Native.win-x64/runtimes/win-x64/native
-        cp artifacts/native-win-x64/fon_native.dll FON.Native.Platforms/FON.Native.win-x64/runtimes/win-x64/native/
+        mkdir -p FON/runtimes/win-x64/native
+        cp artifacts/native-win-x64/fon_native.dll FON/runtimes/win-x64/native/
 
-        # Windows ARM64
-        mkdir -p FON.Native.Platforms/FON.Native.win-arm64/runtimes/win-arm64/native
-        cp artifacts/native-win-arm64/fon_native.dll FON.Native.Platforms/FON.Native.win-arm64/runtimes/win-arm64/native/
+        mkdir -p FON/runtimes/win-arm64/native
+        cp artifacts/native-win-arm64/fon_native.dll FON/runtimes/win-arm64/native/
 
-        # Linux x64
-        mkdir -p FON.Native.Platforms/FON.Native.linux-x64/runtimes/linux-x64/native
-        cp artifacts/native-linux-x64/libfon_native.so FON.Native.Platforms/FON.Native.linux-x64/runtimes/linux-x64/native/
+        mkdir -p FON/runtimes/linux-x64/native
+        cp artifacts/native-linux-x64/libfon_native.so FON/runtimes/linux-x64/native/
 
-        # Linux ARM64
-        mkdir -p FON.Native.Platforms/FON.Native.linux-arm64/runtimes/linux-arm64/native
-        cp artifacts/native-linux-arm64/libfon_native.so FON.Native.Platforms/FON.Native.linux-arm64/runtimes/linux-arm64/native/
+        mkdir -p FON/runtimes/linux-arm64/native
+        cp artifacts/native-linux-arm64/libfon_native.so FON/runtimes/linux-arm64/native/
 
-        # Linux musl x64
-        mkdir -p FON.Native.Platforms/FON.Native.linux-musl-x64/runtimes/linux-musl-x64/native
-        cp artifacts/native-linux-musl-x64/libfon_native.so FON.Native.Platforms/FON.Native.linux-musl-x64/runtimes/linux-musl-x64/native/
+        mkdir -p FON/runtimes/linux-musl-x64/native
+        cp artifacts/native-linux-musl-x64/libfon_native.so FON/runtimes/linux-musl-x64/native/
 
-        # Linux musl ARM64
-        mkdir -p FON.Native.Platforms/FON.Native.linux-musl-arm64/runtimes/linux-musl-arm64/native
-        cp artifacts/native-linux-musl-arm64/libfon_native.so FON.Native.Platforms/FON.Native.linux-musl-arm64/runtimes/linux-musl-arm64/native/
+        mkdir -p FON/runtimes/linux-musl-arm64/native
+        cp artifacts/native-linux-musl-arm64/libfon_native.so FON/runtimes/linux-musl-arm64/native/
 
-        # macOS x64
-        mkdir -p FON.Native.Platforms/FON.Native.osx-x64/runtimes/osx-x64/native
-        cp artifacts/native-osx-x64/libfon_native.dylib FON.Native.Platforms/FON.Native.osx-x64/runtimes/osx-x64/native/
+        mkdir -p FON/runtimes/osx-x64/native
+        cp artifacts/native-osx-x64/libfon_native.dylib FON/runtimes/osx-x64/native/
 
-        # macOS ARM64
-        mkdir -p FON.Native.Platforms/FON.Native.osx-arm64/runtimes/osx-arm64/native
-        cp artifacts/native-osx-arm64/libfon_native.dylib FON.Native.Platforms/FON.Native.osx-arm64/runtimes/osx-arm64/native/
+        mkdir -p FON/runtimes/osx-arm64/native
+        cp artifacts/native-osx-arm64/libfon_native.dylib FON/runtimes/osx-arm64/native/
 
     - name: Restore dependencies
       run: dotnet restore
@@ -405,25 +382,10 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release --no-restore
 
-    - name: Pack NuGet packages
+    - name: Pack NuGet package
       run: |
         VERSION="${{ needs.check-version.outputs.version }}"
-
         dotnet pack FON/FON.csproj --configuration Release --no-build -p:Version=$VERSION --output ./packages
-        dotnet pack FON.Native.Runtime/FON.Native.Runtime.csproj --configuration Release --no-build -p:Version=$VERSION --output ./packages
-
-        # Pack platform packages
-        dotnet pack FON.Native.Platforms/FON.Native.win-x64/FON.Native.win-x64.csproj --configuration Release -p:Version=$VERSION --output ./packages
-        dotnet pack FON.Native.Platforms/FON.Native.win-arm64/FON.Native.win-arm64.csproj --configuration Release -p:Version=$VERSION --output ./packages
-        dotnet pack FON.Native.Platforms/FON.Native.linux-x64/FON.Native.linux-x64.csproj --configuration Release -p:Version=$VERSION --output ./packages
-        dotnet pack FON.Native.Platforms/FON.Native.linux-arm64/FON.Native.linux-arm64.csproj --configuration Release -p:Version=$VERSION --output ./packages
-        dotnet pack FON.Native.Platforms/FON.Native.linux-musl-x64/FON.Native.linux-musl-x64.csproj --configuration Release -p:Version=$VERSION --output ./packages
-        dotnet pack FON.Native.Platforms/FON.Native.linux-musl-arm64/FON.Native.linux-musl-arm64.csproj --configuration Release -p:Version=$VERSION --output ./packages
-        dotnet pack FON.Native.Platforms/FON.Native.osx-x64/FON.Native.osx-x64.csproj --configuration Release -p:Version=$VERSION --output ./packages
-        dotnet pack FON.Native.Platforms/FON.Native.osx-arm64/FON.Native.osx-arm64.csproj --configuration Release -p:Version=$VERSION --output ./packages
-
-        # Pack the meta-package last
-        dotnet pack FON.Native/FON.Native.csproj --configuration Release --no-build -p:Version=$VERSION --output ./packages
 
     - name: List packages
       run: ls -la ./packages
