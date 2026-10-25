@@ -1,26 +1,27 @@
-//! FON native library — C ABI shim over the `fon` crate.
+//! FON native library: a C ABI shim over the `fon` crate.
 //!
-//! Exposes a C ABI matching the original `fon_export.h` so the .NET P/Invoke
-//! bindings (`NativeBindings.cs`, in the `FON` project) work without any
-//! change. Split by concern:
+//! The exported surface is defined by `include/fon.h`, the authoritative contract.
+//! Modules, by concern:
 //!
-//! - `error` — error codes, the FFI error struct, version, and global config
-//! - `collection` / `dump` — lifecycle (create/free/size) for each container
-//! - `scalar` — single-value add/get (ints, floats, bool, string, raw binary)
-//! - `array` — array-value add/get
-//! - `nesting` — nested collections (single child, or an array of children)
-//! - `enumerate` — generic (reflection-driven) enumeration / type introspection
-//! - `serialize` / `deserialize` — text, buffer, and file I/O
+//! - `error`: result codes, put modes, the `FonError` struct, and the shared helpers
+//!   (ptr+len arguments, the size-query and multi-string writers, error reporting).
+//! - `config`: version reporting and the global deserialization settings.
+//! - `collection`: collection lifecycle, clone, keys, kinds, removal, put/lookup helpers.
+//! - `scalar`, `array`, `nesting`: typed values, arrays, and nested collections.
+//! - `dump`: dump lifecycle, ids, borrowed records, put/remove, generations.
+//! - `serialize`, `deserialize`: text and buffer I/O.
 //!
-//! Every `#[no_mangle] extern "C"` function keeps its original exported
-//! symbol name regardless of which module it lives in.
+//! Every `#[no_mangle] extern "C"` function keeps the symbol name declared in `fon.h`.
 
 mod array;
 mod collection;
+mod config;
 mod deserialize;
 mod dump;
-mod enumerate;
 mod error;
 mod nesting;
 mod scalar;
 mod serialize;
+
+#[cfg(test)]
+mod tests;

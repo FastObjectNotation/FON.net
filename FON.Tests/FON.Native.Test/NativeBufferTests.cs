@@ -2,162 +2,190 @@ using System.Text;
 using FON.Native;
 using Xunit;
 
-
 namespace FON.Native.Test;
 
 
 /// <summary>
-/// Tests for native string/buffer-based serialization and deserialization.
-/// Covers both raw NativeBindings (two-call pattern) and high-level NativeApi helpers.
+/// Raw ABI tests for the size-query and multi-string patterns of fon.h.
 /// </summary>
-public class NativeBufferTests {
+public unsafe class NativeBufferTests {
     [Fact]
-    public void SerializeDump_AndDeserializeDump_RoundTrips_ViaNativeApi() {
-        var dump = NativeBindings.fon_dump_create();
+    public void NativeVersion_IsNulTerminatedSemver() {
+        string version = ReadUtf8(NativeBindings.fon_version());
+        Assert.Matches(@"^\d+\.\d+\.\d+$", version);
+    }
+
+
+    [Fact]
+    public void NativeString_SizeQueryWithNullBuffer_ReportsExactByteCount() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        string value = new string('a', 8192);
         try {
-            var error = new FonError();
-
-            var c1 = NativeBindings.fon_collection_create();
-            NativeBindings.fon_collection_add_int(c1, "id", 1, ref error);
-            NativeBindings.fon_collection_add_string(c1, "name", "first", ref error);
-            NativeBindings.fon_dump_add(dump, 0, c1, ref error);
-
-            var c2 = NativeBindings.fon_collection_create();
-            NativeBindings.fon_collection_add_int(c2, "id", 2, ref error);
-            NativeBindings.fon_collection_add_double(c2, "ratio", 3.14, ref error);
-            NativeBindings.fon_dump_add(dump, 1, c2, ref error);
-
-            string serialized = NativeApi.SerializeDump(dump);
-            Assert.NotEmpty(serialized);
-            Assert.Contains("first", serialized);
-
-            IntPtr loaded = NativeApi.DeserializeDump(serialized);
-            try {
-                Assert.Equal(2, NativeBindings.fon_dump_size(loaded));
-
-                var l1 = NativeBindings.fon_dump_get(loaded, 0);
-                NativeBindings.fon_collection_get_int(l1, "id", out int id1, ref error);
-                Assert.Equal(1, id1);
-
-                var l2 = NativeBindings.fon_dump_get(loaded, 1);
-                NativeBindings.fon_collection_get_double(l2, "ratio", out double ratio, ref error);
-                Assert.Equal(3.14, ratio);
-            } finally {
-                NativeBindings.fon_dump_free(loaded);
+            Assert.Equal(FonResultCode.OK, NativeKit.PutString(collection, "s", value, FonPutMode.Add, &error));
+            byte[] key = NativeKit.Utf8("s");
+            long actual = -1;
+            fixed (byte* keyPtr = key) {
+                Assert.Equal(FonResultCode.OK, NativeBindings.fon_collection_get_string(collection, keyPtr, key.Length, null, 0, &actual, &error));
             }
+            Assert.Equal(8192L, actual);
         } finally {
-            NativeBindings.fon_dump_free(dump);
+            NativeBindings.fon_collection_free(collection);
         }
     }
 
 
     [Fact]
-    public void SerializeCollection_AndDeserializeCollection_RoundTrips_ViaNativeApi() {
-        var c = NativeBindings.fon_collection_create();
+    public void NativeString_CapacityOneTooSmall_ReturnsBufferTooSmallAndWritesNothing() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
         try {
-            var error = new FonError();
-            NativeBindings.fon_collection_add_int(c, "x", 42, ref error);
-            NativeBindings.fon_collection_add_bool(c, "flag", 1, ref error);
-            NativeBindings.fon_collection_add_string(c, "label", "hello", ref error);
-
-            string line = NativeApi.SerializeCollection(c);
-            Assert.NotEmpty(line);
-
-            IntPtr loaded = NativeApi.DeserializeCollection(line);
-            try {
-                NativeBindings.fon_collection_get_int(loaded, "x", out int x, ref error);
-                Assert.Equal(42, x);
-                NativeBindings.fon_collection_get_bool(loaded, "flag", out int flag, ref error);
-                Assert.Equal(1, flag);
-
-                var buf = new byte[64];
-                NativeBindings.fon_collection_get_string(loaded, "label", buf, buf.Length, ref error);
-                int len = Array.IndexOf(buf, (byte)0);
-                string label = Encoding.UTF8.GetString(buf, 0, len < 0 ? buf.Length : len);
-                Assert.Equal("hello", label);
-            } finally {
-                NativeBindings.fon_collection_free(loaded);
+            Assert.Equal(FonResultCode.OK, NativeKit.PutString(collection, "s", "abcdef", FonPutMode.Add, &error));
+            byte[] key = NativeKit.Utf8("s");
+            byte[] buffer = new byte[6];
+            Array.Fill(buffer, (byte)0xAA);
+            long actual = 0;
+            fixed (byte* keyPtr = key) {
+                fixed (byte* bufferPtr = buffer) {
+                    int rc = NativeBindings.fon_collection_get_string(collection, keyPtr, key.Length, bufferPtr, 5, &actual, &error);
+                    Assert.Equal(FonResultCode.BufferTooSmall, rc);
+                }
             }
+            Assert.Equal(6L, actual);
+            Assert.All(buffer, (byte b) => Assert.Equal((byte)0xAA, b));
         } finally {
-            NativeBindings.fon_collection_free(c);
+            NativeBindings.fon_collection_free(collection);
         }
     }
 
 
     [Fact]
-    public unsafe void SerializeDump_TwoCallPattern_ReturnsRequiredSizeFirst() {
-        var dump = NativeBindings.fon_dump_create();
+    public void NativeString_HundredThousandBytes_RoundTripsIntact() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        string value = new string('x', 100_000);
         try {
-            var error = new FonError();
-            var c = NativeBindings.fon_collection_create();
-            NativeBindings.fon_collection_add_int(c, "n", 7, ref error);
-            NativeBindings.fon_dump_add(dump, 0, c, ref error);
+            Assert.Equal(FonResultCode.OK, NativeKit.PutString(collection, "big", value, FonPutMode.Add, &error));
+            Assert.Equal(value, NativeKit.GetString(collection, "big"));
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
 
-            int rc = NativeBindings.fon_serialize_dump_to_buffer(dump, null, 0, out long required, 1, ref error);
-            Assert.Equal(FonResultCode.OK, rc);
-            Assert.True(required > 0);
 
-            byte[] buf = new byte[required];
-            fixed (byte* p = buf) {
-                rc = NativeBindings.fon_serialize_dump_to_buffer(dump, p, buf.Length, out required, 1, ref error);
+    [Fact]
+    public void NativeString_EmbeddedNul_InValueIsPreserved() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            string value = "a\0b";
+            Assert.Equal(FonResultCode.OK, NativeKit.PutString(collection, "v", value, FonPutMode.Add, &error));
+            Assert.Equal(value, NativeKit.GetString(collection, "v"));
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeKeys_EmbeddedNulAndLongKey_RoundTrip() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        string longKey = new string('k', 600);
+        string nulKey = "x\0y";
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, nulKey, 1, FonPutMode.Add, &error));
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, longKey, 2, FonPutMode.Add, &error));
+
+            List<(string Key, int Kind)> keys = NativeKit.KeysWithKinds(collection);
+
+            Assert.Equal(nulKey, keys[0].Key);
+            Assert.Equal(longKey, keys[1].Key);
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeStringArray_MultiStringPattern_RoundTripsWithEmptyItems() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        string[] items = { "x", string.Empty, new string('b', 8192), "y" };
+        byte[] itemBytes = items.SelectMany(item => Encoding.UTF8.GetBytes(item)).ToArray();
+        long[] lengths = items.Select(item => (long)Encoding.UTF8.GetByteCount(item)).ToArray();
+        byte[] key = NativeKit.Utf8("arr");
+        try {
+            fixed (byte* keyPtr = key) {
+                fixed (long* lengthPtr = lengths) {
+                    fixed (byte* bytePtr = itemBytes) {
+                        int rc = NativeBindings.fon_collection_put_string_array(collection, keyPtr, key.Length, lengthPtr, bytePtr, items.Length, FonPutMode.Add, &error);
+                        Assert.Equal(FonResultCode.OK, rc);
+                    }
+                }
             }
-            Assert.Equal(FonResultCode.OK, rc);
 
-            string text = Encoding.UTF8.GetString(buf);
-            Assert.Contains("n=", text);
+            long count = 0;
+            long totalBytes = 0;
+            fixed (byte* keyPtr = key) {
+                Assert.Equal(FonResultCode.OK, NativeBindings.fon_collection_get_string_array(collection, keyPtr, key.Length, null, 0, null, 0, &count, &totalBytes, &error));
+            }
+            Assert.Equal((long)items.Length, count);
+            Assert.Equal((long)itemBytes.Length, totalBytes);
+
+            long[] readLengths = new long[count];
+            byte[] readBytes = new byte[totalBytes];
+            fixed (byte* keyPtr = key) {
+                fixed (long* lengthPtr = readLengths) {
+                    fixed (byte* bytePtr = readBytes) {
+                        Assert.Equal(FonResultCode.OK, NativeBindings.fon_collection_get_string_array(collection, keyPtr, key.Length, lengthPtr, count, bytePtr, totalBytes, &count, &totalBytes, &error));
+                    }
+                }
+            }
+
+            Assert.Equal("x", Encoding.UTF8.GetString(readBytes, 0, (int)readLengths[0]));
+            Assert.Equal(0L, readLengths[1]);
+            Assert.Equal(items[2], Encoding.UTF8.GetString(readBytes, 1, (int)readLengths[2]));
+            Assert.Equal("y", Encoding.UTF8.GetString(readBytes, 1 + 8192, (int)readLengths[3]));
         } finally {
-            NativeBindings.fon_dump_free(dump);
+            NativeBindings.fon_collection_free(collection);
         }
     }
 
 
     [Fact]
-    public void TrySerializeCollection_ReturnsFalseWhenBufferTooSmall_AndWritesRequiredSize() {
-        var c = NativeBindings.fon_collection_create();
+    public void NativeIntArray_SizeQueryThenFill() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        int[] values = { int.MinValue, -1, 0, 1, int.MaxValue };
+        byte[] key = NativeKit.Utf8("ints");
         try {
-            var error = new FonError();
-            NativeBindings.fon_collection_add_string(c, "k", "this string needs space", ref error);
+            fixed (byte* keyPtr = key) {
+                fixed (int* valuePtr = values) {
+                    Assert.Equal(FonResultCode.OK, NativeBindings.fon_collection_put_int_array(collection, keyPtr, key.Length, valuePtr, values.Length, FonPutMode.Add, &error));
+                }
+            }
 
-            Span<byte> tooSmall = stackalloc byte[4];
-            bool ok = NativeApi.TrySerializeCollection(c, tooSmall, out int written);
+            long actual = 0;
+            fixed (byte* keyPtr = key) {
+                Assert.Equal(FonResultCode.OK, NativeBindings.fon_collection_get_int_array(collection, keyPtr, key.Length, null, 0, &actual, &error));
+            }
+            Assert.Equal((long)values.Length, actual);
 
-            Assert.False(ok);
-            Assert.True(written > tooSmall.Length);
+            int[] read = new int[actual];
+            fixed (byte* keyPtr = key) {
+                fixed (int* readPtr = read) {
+                    Assert.Equal(FonResultCode.OK, NativeBindings.fon_collection_get_int_array(collection, keyPtr, key.Length, readPtr, actual, &actual, &error));
+                }
+            }
+            Assert.Equal(values, read);
         } finally {
-            NativeBindings.fon_collection_free(c);
+            NativeBindings.fon_collection_free(collection);
         }
     }
 
 
-    [Fact]
-    public void DeserializeDump_FromSpan_ZeroCopy() {
-        var dump = NativeBindings.fon_dump_create();
-        string serialized;
-        try {
-            var error = new FonError();
-            var c = NativeBindings.fon_collection_create();
-            NativeBindings.fon_collection_add_long(c, "v", 9_000_000_000L, ref error);
-            NativeBindings.fon_dump_add(dump, 0, c, ref error);
-            serialized = NativeApi.SerializeDump(dump);
-        } finally {
-            NativeBindings.fon_dump_free(dump);
-        }
-
-        ReadOnlySpan<byte> utf8 = Encoding.UTF8.GetBytes(serialized);
-        IntPtr loaded = NativeApi.DeserializeDump(utf8);
-        try {
-            var l = NativeBindings.fon_dump_get(loaded, 0);
-            var error = new FonError();
-            NativeBindings.fon_collection_get_long(l, "v", out long v, ref error);
-            Assert.Equal(9_000_000_000L, v);
-        } finally {
-            NativeBindings.fon_dump_free(loaded);
-        }
-    }
-
-
-    [Fact]
-    public void DeserializeDump_OnInvalidInput_ThrowsFonNativeException() {
-        Assert.Throws<FonNativeException>(() => NativeApi.DeserializeDump("key=garbage_without_type_separator"));
+    private static string ReadUtf8(IntPtr pointer) {
+        return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(pointer) ?? string.Empty;
     }
 }

@@ -6,7 +6,7 @@
 		<AssemblyName>FON</AssemblyName>
 		<PackageId>FastObjectNotation</PackageId>
 		<Title>FON — Fast Object Notation</Title>
-		<PackageDescription>Fast Object Notation (FON) — high-performance, human-readable serialization for .NET, backed by a native core parallelized across CPU cores. Supports all primitive types, arrays, nested objects, and binary data. Ships with native binaries for Windows, Linux, Linux musl, and macOS (x64 and ARM64).</PackageDescription>
+		<PackageDescription>Fast Object Notation (FON): a fast, human-readable, line-oriented serialization format, a compact alternative to JSON for record-style data. Parallel dump serialization and parsing; supports all primitive types, arrays, nested objects and binary data. Ships native binaries for Windows, Linux, Linux musl and macOS (x64 and ARM64).</PackageDescription>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Optimize>true</Optimize>
 	</PropertyGroup>

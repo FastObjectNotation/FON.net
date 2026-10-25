@@ -346,7 +346,7 @@ public class FonCollectionTests {
             { "c", 3 }
         };
 
-        Assert.Equal(3, collection.Count());
+        Assert.Equal(3, collection.Count);
     }
 
 
@@ -373,10 +373,11 @@ public class FonCollectionTests {
 
 
     [Fact]
-    public void FonCollection_Remove_ThrowsNotSupported() {
+    public void FonCollection_Remove_RemovesKeyAndReturnsTrue() {
         using var collection = new FonCollection { { "key", 1 } };
 
-        Assert.Throws<NotSupportedException>(() => collection.Remove("key"));
+        Assert.True(collection.Remove("key"));
+        Assert.False(collection.ContainsKey("key"));
     }
 
 
@@ -437,11 +438,12 @@ public class FonDumpTests {
 
 
     [Fact]
-    public void FonDump_Remove_ThrowsNotSupported() {
+    public void FonDump_Remove_RemovesRecordAndReturnsTrue() {
         using var dump = new FonDump();
         dump.TryAdd(0, new FonCollection { { "x", 1 } });
 
-        Assert.Throws<NotSupportedException>(() => dump.Remove(0));
+        Assert.True(dump.Remove(0));
+        Assert.Equal(0, dump.Count);
     }
 }
 

@@ -10,14 +10,14 @@ public partial class Fon {
     /// <summary>Parses a multi-line UTF-8 string into a new <see cref="FonDump"/>.</summary>
     public static FonDump Deserialize(string text) {
         ArgumentNullException.ThrowIfNull(text);
-        IntPtr raw = NativeApi.DeserializeDump(text);
+        IntPtr raw = NativeApi.DeserializeDump(NativeApi.Encode(text), 0);
         return FonDump.FromOwnedHandle(raw, EstimateBytes(text.Length));
     }
 
 
     /// <summary>Parses a multi-line UTF-8 buffer into a new <see cref="FonDump"/>.</summary>
     public static FonDump Deserialize(ReadOnlySpan<byte> utf8) {
-        IntPtr raw = NativeApi.DeserializeDump(utf8);
+        IntPtr raw = NativeApi.DeserializeDump(utf8, 0);
         return FonDump.FromOwnedHandle(raw, EstimateBytes(utf8.Length));
     }
 
@@ -25,7 +25,7 @@ public partial class Fon {
     /// <summary>Parses a single-line UTF-8 string into a new <see cref="FonCollection"/>.</summary>
     public static FonCollection DeserializeCollection(string text) {
         ArgumentNullException.ThrowIfNull(text);
-        IntPtr raw = NativeApi.DeserializeCollection(text);
+        IntPtr raw = NativeApi.DeserializeCollection(NativeApi.Encode(text));
         return FonCollection.FromOwnedHandle(raw, EstimateBytes(text.Length));
     }
 
@@ -56,14 +56,14 @@ public partial class Fon {
         Task.Run(() => DeserializeFromFileCore(file, maxDegreeOfParallelism));
 
 
+    /// <summary>
+    /// Reads a file into a new dump. A missing file throws <see cref="FonNativeException"/> with
+    /// code <see cref="FonResultCode.FileNotFound"/>.
+    /// </summary>
     private static FonDump DeserializeFromFileCore(FileInfo file, int? maxDegreeOfParallelism) {
         ArgumentNullException.ThrowIfNull(file);
-        int maxThreads = maxDegreeOfParallelism ?? Environment.ProcessorCount;
-        var error = new FonError();
-        IntPtr raw = NativeBindings.fon_deserialize_from_file(file.FullName, maxThreads, ref error);
-        if (raw == IntPtr.Zero) {
-            throw new FonNativeException(error);
-        }
+        int maxThreads = maxDegreeOfParallelism ?? 0;
+        IntPtr raw = NativeApi.DeserializeFromFile(file.FullName, maxThreads);
         return FonDump.FromOwnedHandle(raw, EstimateBytes(file.Exists ? file.Length : 0));
     }
 }

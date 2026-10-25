@@ -1,106 +1,126 @@
-//! Serialization: to a file, and to a caller-supplied UTF-8 buffer (two-call
-//! query-size-then-fill pattern, matching the array getters).
+//! Serialization to a file and to library-owned buffers, and the release of those
+//! buffers. Each serialize call builds the text once.
 
-use std::ffi::{c_char, c_void};
+use std::ffi::c_void;
 use std::path::PathBuf;
-use std::slice;
+use std::ptr;
 
 use fon::serialize::{serialize_dump_to_string, serialize_to_file, serialize_to_string};
-use fon::types::{FonCollection, FonDump};
+use fon::types::FonCollection;
 
-use crate::error::{cstr_to_str, err_code, set_error, FonError, FON_ERROR_INVALID_ARGUMENT, FON_OK};
+use crate::collection::collection_ref;
+use crate::dump::dump_ref;
+use crate::error::{finish, invalid, str_arg, to_i64, Failure, FonError};
+
+
+/// Rejects NULL output parameters before any work is done.
+unsafe fn check_out(out: *mut *mut u8, out_len: *mut i64) -> Result<(), Failure> {
+    if out.is_null() || out_len.is_null() {
+        return Err(invalid("out and out_len must not be null"));
+    }
+    Ok(())
+}
+
+
+/// Hands a library-owned copy of `bytes` to the caller. Empty output yields NULL and 0.
+unsafe fn hand_out(bytes: Vec<u8>, out: *mut *mut u8, out_len: *mut i64) {
+    if bytes.is_empty() {
+        ptr::write(out, ptr::null_mut());
+        ptr::write(out_len, 0);
+        return;
+    }
+    let len: i64 = to_i64(bytes.len());
+    let raw: *mut [u8] = Box::into_raw(bytes.into_boxed_slice());
+    ptr::write(out, raw as *mut u8);
+    ptr::write(out_len, len);
+}
+
+
+/// Releases a buffer returned by a serialize function. NULL or zero length is a no-op.
+#[no_mangle]
+pub extern "C" fn fon_buffer_free(buffer: *mut u8, len: i64) {
+    if buffer.is_null() || len <= 0 {
+        return;
+    }
+    unsafe {
+        drop(Box::from_raw(ptr::slice_from_raw_parts_mut(buffer, len as usize)));
+    }
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_serialize_dump(
+    dump: *mut c_void,
+    max_threads: i32,
+    out: *mut *mut u8,
+    out_len: *mut i64,
+    error: *mut FonError,
+) -> i32 {
+    let result: Result<(), Failure> = unsafe { serialize_dump_into(dump, max_threads, out, out_len) };
+    unsafe { finish(error, result) }
+}
+
+
+unsafe fn serialize_dump_into(
+    dump: *mut c_void,
+    max_threads: i32,
+    out: *mut *mut u8,
+    out_len: *mut i64,
+) -> Result<(), Failure> {
+    check_out(out, out_len)?;
+    let d = dump_ref(dump)?;
+    let text: String = serialize_dump_to_string(d, max_threads);
+    hand_out(text.into_bytes(), out, out_len);
+    Ok(())
+}
+
+
+#[no_mangle]
+pub extern "C" fn fon_serialize_collection(
+    collection: *mut c_void,
+    out: *mut *mut u8,
+    out_len: *mut i64,
+    error: *mut FonError,
+) -> i32 {
+    let result: Result<(), Failure> = unsafe { serialize_collection_into(collection, out, out_len) };
+    unsafe { finish(error, result) }
+}
+
+
+unsafe fn serialize_collection_into(
+    collection: *mut c_void,
+    out: *mut *mut u8,
+    out_len: *mut i64,
+) -> Result<(), Failure> {
+    check_out(out, out_len)?;
+    let c: &FonCollection = collection_ref(collection)?;
+    let text: String = serialize_to_string(c);
+    hand_out(text.into_bytes(), out, out_len);
+    Ok(())
+}
 
 
 #[no_mangle]
 pub extern "C" fn fon_serialize_to_file(
     dump: *mut c_void,
-    path: *const c_char,
+    path: *const u8,
+    path_len: i64,
     max_threads: i32,
     error: *mut FonError,
 ) -> i32 {
-    if dump.is_null() || path.is_null() {
-        set_error(
-            error,
-            FON_ERROR_INVALID_ARGUMENT,
-            "Invalid argument: dump or path is null",
-        );
-        return FON_ERROR_INVALID_ARGUMENT;
-    }
-    let path_str = match unsafe { cstr_to_str(path) } {
-        Ok(s) => s,
-        Err(e) => {
-            set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
-            return FON_ERROR_INVALID_ARGUMENT;
-        }
-    };
-
-    let d = unsafe { &*(dump as *const FonDump) };
-    match serialize_to_file(d, &PathBuf::from(path_str), max_threads) {
-        Ok(()) => FON_OK,
-        Err(e) => {
-            let code = err_code(&e);
-            set_error(error, code, &e.to_string());
-            code
-        }
-    }
+    let result: Result<(), Failure> =
+        unsafe { serialize_to_file_into(dump, path, path_len, max_threads) };
+    unsafe { finish(error, result) }
 }
 
 
-// Two-call pattern (matches fon_collection_get_int_array):
-//   1. Pass buffer=null, buffer_size=0 to read required size into *required_size.
-//   2. Allocate buffer of required_size bytes, call again to receive UTF-8 bytes.
-// Output is NOT null-terminated; *required_size is the exact byte count.
-
-unsafe fn write_buffer(
-    bytes: &[u8],
-    buffer: *mut u8,
-    buffer_size: i64,
-    required_size: *mut i64,
-) -> i32 {
-    if !required_size.is_null() {
-        *required_size = bytes.len() as i64;
-    }
-    if !buffer.is_null() && buffer_size > 0 {
-        let copy_count = (buffer_size as usize).min(bytes.len());
-        let dst = slice::from_raw_parts_mut(buffer, copy_count);
-        dst.copy_from_slice(&bytes[..copy_count]);
-    }
-    FON_OK
-}
-
-
-#[no_mangle]
-pub extern "C" fn fon_serialize_dump_to_buffer(
+unsafe fn serialize_to_file_into(
     dump: *mut c_void,
-    buffer: *mut u8,
-    buffer_size: i64,
-    required_size: *mut i64,
+    path: *const u8,
+    path_len: i64,
     max_threads: i32,
-    error: *mut FonError,
-) -> i32 {
-    if dump.is_null() || required_size.is_null() {
-        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
-        return FON_ERROR_INVALID_ARGUMENT;
-    }
-    let d = unsafe { &*(dump as *const FonDump) };
-    let s = serialize_dump_to_string(d, max_threads);
-    unsafe { write_buffer(s.as_bytes(), buffer, buffer_size, required_size) }
-}
-
-
-#[no_mangle]
-pub extern "C" fn fon_serialize_collection_to_buffer(
-    collection: *mut c_void,
-    buffer: *mut u8,
-    buffer_size: i64,
-    required_size: *mut i64,
-    error: *mut FonError,
-) -> i32 {
-    if collection.is_null() || required_size.is_null() {
-        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
-        return FON_ERROR_INVALID_ARGUMENT;
-    }
-    let c = unsafe { &*(collection as *const FonCollection) };
-    let s = serialize_to_string(c);
-    unsafe { write_buffer(s.as_bytes(), buffer, buffer_size, required_size) }
+) -> Result<(), Failure> {
+    let d = dump_ref(dump)?;
+    let target: PathBuf = PathBuf::from(str_arg(path, path_len)?);
+    serialize_to_file(d, &target, max_threads).map_err(Failure::from)
 }

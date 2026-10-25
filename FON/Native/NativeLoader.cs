@@ -7,7 +7,7 @@ namespace FON.Native;
 /// Helper for checking native library availability
 /// </summary>
 public static class NativeLoader {
-    private static readonly Lazy<bool> _isAvailable = new(() => {
+    private static readonly Lazy<bool> isAvailable = new(() => {
         try {
             return NativeBindings.fon_version() != IntPtr.Zero;
         } catch {
@@ -18,7 +18,7 @@ public static class NativeLoader {
     /// <summary>
     /// Check if native library is available
     /// </summary>
-    public static bool IsAvailable => _isAvailable.Value;
+    public static bool IsAvailable => isAvailable.Value;
 
 
 
@@ -31,8 +31,8 @@ public static class NativeLoader {
         }
 
         try {
-            var ptr = NativeBindings.fon_version();
-            return ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : null;
+            IntPtr ptr = NativeBindings.fon_version();
+            return ptr != IntPtr.Zero ? Marshal.PtrToStringUTF8(ptr) : null;
         } catch {
             return null;
         }
@@ -44,7 +44,7 @@ public static class NativeLoader {
     /// Get current runtime identifier
     /// </summary>
     public static string GetRuntimeIdentifier() {
-        var arch = RuntimeInformation.ProcessArchitecture switch {
+        string arch = RuntimeInformation.ProcessArchitecture switch {
             Architecture.X64 => "x64",
             Architecture.X86 => "x86",
             Architecture.Arm64 => "arm64",

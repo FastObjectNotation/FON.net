@@ -1,82 +1,89 @@
 using System.Collections;
-using System.Reflection;
-using System.Text;
 using FON.Native;
 
 namespace FON.Types;
 
 
 /// <summary>
-/// Key-value collection that can hold primitives, strings, RawData, and other
-/// FonCollections (nested objects) or lists of any supported type. Backed by a
-/// native <c>fon_collection_*</c> handle — every operation routes through
-/// <see cref="NativeBindings"/>.
+/// Key-value collection that holds primitives, strings, <see cref="RawData"/>, nested
+/// collections and lists of each. Backed by a native collection.
 /// </summary>
 /// <remarks>
-/// Cycles are the caller's responsibility: placing a FonCollection inside
-/// itself (directly or transitively through nested values or lists) is not
-/// detected beyond the immediate self-reference check. Serialization will
-/// recurse until the call stack overflows.
-///
-/// The native store is append-only: <see cref="Remove"/> and overwriting an
-/// existing key via the indexer are not supported and throw. A
-/// <see cref="FonCollection"/> obtained via <see cref="Get{T}"/>, a list
-/// element, or dump/collection enumeration is a borrowed view into its
-/// parent's native memory — do not use it after the parent is disposed.
+/// An owned collection (created directly, by <see cref="Clone"/>, or by deserializing a single
+/// record) owns native memory; free it with <see cref="Dispose"/> (the finalizer is a safety net).
+/// A collection read from a <see cref="FonDump"/> or from a nested getter is a view: it owns
+/// nothing and keeps its root alive. A view throws <see cref="FonStaleViewException"/> once the
+/// data it refers to was changed or removed, and <see cref="ObjectDisposedException"/> once its
+/// root was disposed.
+/// <para>
+/// Putting an owned collection into another collection or dump transfers it: the instance passed
+/// in becomes unusable and its views go stale. A view cannot be put into a container; call
+/// <see cref="Clone"/> first.
+/// </para>
 /// </remarks>
 public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, IDisposable {
     private const long EmptyCollectionBytesEstimate = 64;
-    private const int KeyBufferSize = 512;
-    private const int StringBufferSize = 8192;
 
-    private static readonly UTF8Encoding utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
-
-    private readonly FonCollectionHandle handle;
+    private readonly FonCollectionHandle? ownedHandle;
+    private readonly FonCollectionView? view;
+    private long version;
+    private long treeVersion;
+    private bool transferred;
 
 
     public FonCollection() : this(CreateOwnHandle()) {
     }
 
 
-    internal FonCollection(FonCollectionHandle handle) {
-        this.handle = handle;
+    internal FonCollection(FonCollectionHandle ownedHandle) {
+        this.ownedHandle = ownedHandle;
+    }
+
+
+    internal FonCollection(FonCollectionView view) {
+        this.view = view;
     }
 
 
     public object this[string key] {
         get {
-            ThrowIfDisposed();
-            int kind = KindOf(key);
+            int kind = KindCode(key);
             if (kind < 0) {
                 throw new KeyNotFoundException($"Key '{key}' not found in FonCollection");
             }
             return GetBoxedValue(key, kind);
         }
         set {
-            ThrowIfDisposed();
-            if (KindOf(key) >= 0) {
-                throw new InvalidOperationException($"Object with key {key} already exists in the collection");
+            Set(key, value);
+        }
+    }
+
+
+    /// <summary>Number of keys in this collection.</summary>
+    public int Count => Read(raw => checked((int)NativeBindings.fon_collection_size(raw)));
+
+
+    /// <summary>All keys in insertion order.</summary>
+    public IReadOnlyList<string> Keys {
+        get {
+            List<KeyEntry> entries = Read(raw => NativeApi.ReadKeys(raw));
+            List<string> keys = new List<string>(entries.Count);
+            foreach (KeyEntry entry in entries) {
+                keys.Add(entry.Key);
             }
-            AddCore(key, value);
+            return keys;
         }
     }
 
 
     public void Dispose() {
-        handle.Dispose();
+        ownedHandle?.Dispose();
     }
 
 
     public IEnumerator<KeyValuePair<string, object>> GetEnumerator() {
-        ThrowIfDisposed();
-        IntPtr raw = handle.DangerousGetHandle();
-        long size = NativeBindings.fon_collection_size(raw);
-        GC.KeepAlive(handle);
-
-        for (long i = 0; i < size; i++) {
-            string key = KeyAt(i);
-            int kind = KindOf(key);
-            yield return new KeyValuePair<string, object>(key, GetBoxedValue(key, kind));
+        foreach (KeyEntry entry in Read(raw => NativeApi.ReadKeys(raw))) {
+            yield return new KeyValuePair<string, object>(entry.Key, GetBoxedValue(entry.Key, entry.Kind));
         }
     }
 
@@ -84,31 +91,58 @@ public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, I
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
 
+    /// <summary>Adds a value under a new key. Throws <see cref="InvalidOperationException"/> if the key exists.</summary>
     public void Add(string key, object value) {
-        ThrowIfDisposed();
-        if (KindOf(key) >= 0) {
-            throw new InvalidOperationException($"Object with key {key} already exists in the collection");
-        }
-        AddCore(key, value);
+        PutValue(key, value, FonPutMode.Add);
     }
 
 
+    /// <summary>Adds a value under a new key; returns false if the key exists.</summary>
     public bool TryAdd(string key, object value) {
-        ThrowIfDisposed();
-        if (KindOf(key) >= 0) {
+        if (ContainsKey(key)) {
             return false;
         }
-        AddCore(key, value);
+        PutValue(key, value, FonPutMode.Add);
         return true;
     }
 
 
-    /// <remarks>
-    /// Not supported: the native store is append-only and has no removal primitive.
-    /// Always throws <see cref="NotSupportedException"/>.
-    /// </remarks>
+    /// <summary>Stores a value under the key, replacing any existing value (and its type).</summary>
+    public void Set(string key, object value) {
+        PutValue(key, value, FonPutMode.Upsert);
+    }
+
+
+    /// <summary>Removes the key. Returns false if it was absent.</summary>
     public bool Remove(string key) {
-        throw new NotSupportedException("Remove is not supported by the native-backed FonCollection store; the underlying native collection is append-only.");
+        if (!ContainsKey(key)) {
+            return false;
+        }
+        byte[] keyBytes = NativeApi.Encode(key);
+        Mutate(raw => NativeApi.RemoveKey(raw, keyBytes));
+        return true;
+    }
+
+
+    public bool ContainsKey(string key) {
+        return KindCode(key) >= 0;
+    }
+
+
+    /// <summary>Kind of the value under the key, or null if the key is absent.</summary>
+    public FonKind? KindOf(string key) {
+        int kind = KindCode(key);
+        if (kind < 0) {
+            return null;
+        }
+        return new FonKind(FonKindCodes.ToType((char)(kind & 0xFF)), (kind & FonTypeCode.ArrayFlag) != 0);
+    }
+
+
+    /// <summary>Deep copy of this collection as a new owned collection.</summary>
+    public FonCollection Clone() {
+        IntPtr clone = Read(raw => NativeApi.CloneCollection(raw));
+        return FromOwnedHandle(clone, EmptyCollectionBytesEstimate);
     }
 
 
@@ -119,8 +153,7 @@ public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, I
 
 
     public object? TryGet(string key) {
-        ThrowIfDisposed();
-        int kind = KindOf(key);
+        int kind = KindCode(key);
         return kind < 0 ? null : GetBoxedValue(key, kind);
     }
 
@@ -134,11 +167,11 @@ public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, I
 
 
     public static FonCollection Serialize<T>(T obj) {
-        var properties = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var collection = new FonCollection();
+        System.Reflection.PropertyInfo[] properties = typeof(T).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        FonCollection collection = new FonCollection();
 
-        foreach (var property in properties) {
-            var value = property.GetValue(obj);
+        foreach (System.Reflection.PropertyInfo property in properties) {
+            object? value = property.GetValue(obj);
             if (value != null) {
                 collection.Add(property.Name, value);
             }
@@ -151,14 +184,13 @@ public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, I
 
 
     public T Deserialize<T>() where T : new() {
-        ThrowIfDisposed();
         T result = new T();
         object boxedResult = result;
 
-        var properties = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        System.Reflection.PropertyInfo[] properties = typeof(T).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
 
-        foreach (var property in properties) {
-            var value = TryGet(property.Name);
+        foreach (System.Reflection.PropertyInfo property in properties) {
+            object? value = TryGet(property.Name);
             if (value != null && property.PropertyType.IsInstanceOfType(value)) {
                 property.SetValue(boxedResult, value);
             }
@@ -169,18 +201,56 @@ public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, I
 
 
 
+    // ==================== INTERNAL ====================
+
+    /// <summary>
+    /// Runs <paramref name="read"/> with the validated native handle of this collection. The
+    /// collection is kept alive for the duration of the call.
+    /// </summary>
+    internal T Read<T>(Func<IntPtr, T> read) {
+        IntPtr raw = Access();
+        try {
+            return read(raw);
+        } finally {
+            GC.KeepAlive(this);
+        }
+    }
+
 
     internal static FonCollection FromOwnedHandle(IntPtr raw, long estimatedBytes) {
         return new FonCollection(new FonCollectionHandle(raw, ownsHandle: true, estimatedBytes));
     }
 
 
-    internal static FonCollection FromBorrowedHandle(IntPtr raw) {
-        return new FonCollection(new FonCollectionHandle(raw, ownsHandle: false));
+    /// <summary>Validates an argument that is about to be stored in a container.</summary>
+    internal static void ValidateOwnedRoot(FonCollection child) {
+        ArgumentNullException.ThrowIfNull(child);
+        if (child.view is not null) {
+            throw new ArgumentException("A view cannot be stored in another collection or dump; call clone() first and store the copy.");
+        }
+        if (child.transferred || child.OwnedHandle.IsClosed) {
+            throw new ObjectDisposedException(nameof(FonCollection), "The collection is disposed or was moved into another container.");
+        }
     }
 
 
-    internal FonCollectionHandle Handle => handle;
+    /// <summary>Native pointer of an owned collection, for handing to a container.</summary>
+    internal IntPtr OwnedPointer() {
+        return OwnedHandle.DangerousGetHandle();
+    }
+
+
+    /// <summary>Marks this owned collection as moved into <paramref name="owner"/>.</summary>
+    internal void TransferTo(FonNativeHandle owner) {
+        transferred = true;
+        owner.AdoptChild(OwnedHandle);
+    }
+
+
+
+    // ==================== VALIDATION ====================
+
+    private FonCollectionHandle OwnedHandle => ownedHandle!;
 
 
     private static FonCollectionHandle CreateOwnHandle() {
@@ -189,360 +259,420 @@ public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, I
     }
 
 
-    internal void ThrowIfDisposed() {
-        if (handle.IsClosed) {
+    /// <summary>
+    /// Returns the native pointer for this collection after validating it: disposed or
+    /// transferred owned collections throw <see cref="ObjectDisposedException"/>; views check
+    /// their root and their captured generations or versions.
+    /// </summary>
+    private IntPtr Access() {
+        if (view is null) {
+            if (transferred || OwnedHandle.IsClosed) {
+                throw new ObjectDisposedException(nameof(FonCollection), "The collection is disposed or was moved into another container.");
+            }
+            return OwnedHandle.DangerousGetHandle();
+        }
+        return ResolveView(view);
+    }
+
+
+    private IntPtr ResolveView(FonCollectionView current) {
+        if (current.dump is not null) {
+            FonDump dump = current.dump;
+            dump.Access();
+            if (dump.version != current.capturedVersion) {
+                if (!dump.TryGetGens(current.recordId, out uint recordGen, out uint treeGen)) {
+                    throw NativeApi.StaleView();
+                }
+                if (recordGen != current.recordGen) {
+                    throw NativeApi.StaleView();
+                }
+                if (current.isRecord) {
+                    current.pointer = dump.GetRecordPointer(current.recordId);
+                } else if (treeGen != current.treeGen) {
+                    throw NativeApi.StaleView();
+                }
+                current.capturedVersion = dump.version;
+            }
+            return current.pointer;
+        }
+
+        FonCollection root = current.root!;
+        root.EnsureRootAlive();
+        if (root.version != current.capturedVersion) {
+            if (root.treeVersion != current.treeVersion) {
+                throw NativeApi.StaleView();
+            }
+            current.capturedVersion = root.version;
+        }
+        return current.pointer;
+    }
+
+
+    private void EnsureRootAlive() {
+        if (transferred) {
+            throw NativeApi.StaleView();
+        }
+        if (OwnedHandle.IsClosed) {
             throw new ObjectDisposedException(nameof(FonCollection));
         }
     }
 
 
-    private int KindOf(string key) {
-        IntPtr raw = handle.DangerousGetHandle();
-        int kind = NativeBindings.fon_collection_kind_of(raw, key);
-        GC.KeepAlive(handle);
-        return kind;
-    }
-
-
-    private string KeyAt(long index) {
-        var error = new FonError();
-        var buffer = new byte[KeyBufferSize];
-        IntPtr raw = handle.DangerousGetHandle();
-        int rc = NativeBindings.fon_collection_key_at(raw, index, buffer, buffer.Length, ref error);
-        GC.KeepAlive(handle);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        return DecodeCString(buffer);
-    }
-
-
-    private static string DecodeCString(byte[] buffer) {
-        int len = Array.IndexOf(buffer, (byte)0);
-        return utf8NoBom.GetString(buffer, 0, len < 0 ? buffer.Length : len);
-    }
-
-
-    // ==================== ADD DISPATCH ====================
-
-    private delegate int AddScalarFn<T>(IntPtr collection, string key, T value, ref FonError error);
-    private delegate int AddArrayFn<T>(IntPtr collection, string key, T[] values, long count, ref FonError error);
-
-
-    private void AddCore(string key, object value) {
-        switch (value) {
-            case byte v: AddScalar(key, v, NativeBindings.fon_collection_add_byte); break;
-            case short v: AddScalar(key, v, NativeBindings.fon_collection_add_short); break;
-            case int v: AddScalar(key, v, NativeBindings.fon_collection_add_int); break;
-            case uint v: AddScalar(key, v, NativeBindings.fon_collection_add_uint); break;
-            case long v: AddScalar(key, v, NativeBindings.fon_collection_add_long); break;
-            case ulong v: AddScalar(key, v, NativeBindings.fon_collection_add_ulong); break;
-            case float v: AddScalar(key, v, NativeBindings.fon_collection_add_float); break;
-            case double v: AddScalar(key, v, NativeBindings.fon_collection_add_double); break;
-            case bool v: AddScalar(key, v ? 1 : 0, NativeBindings.fon_collection_add_bool); break;
-            case string v: AddScalar(key, v, NativeBindings.fon_collection_add_string); break;
-            case RawData v: AddRaw(key, v); break;
-            case FonCollection v: AddNestedCollection(key, v); break;
-            case List<byte> v: AddFixedArray(key, v, NativeBindings.fon_collection_add_byte_array); break;
-            case List<short> v: AddFixedArray(key, v, NativeBindings.fon_collection_add_short_array); break;
-            case List<int> v: AddFixedArray(key, v, NativeBindings.fon_collection_add_int_array); break;
-            case List<uint> v: AddFixedArray(key, v, NativeBindings.fon_collection_add_uint_array); break;
-            case List<long> v: AddFixedArray(key, v, NativeBindings.fon_collection_add_long_array); break;
-            case List<ulong> v: AddFixedArray(key, v, NativeBindings.fon_collection_add_ulong_array); break;
-            case List<float> v: AddFixedArray(key, v, NativeBindings.fon_collection_add_float_array); break;
-            case List<double> v: AddFixedArray(key, v, NativeBindings.fon_collection_add_double_array); break;
-            case List<bool> v: AddFixedArray(key, v.ConvertAll(b => (byte)(b ? 1 : 0)), NativeBindings.fon_collection_add_bool_array); break;
-            case List<string> v: AddStringArray(key, v); break;
-            case List<FonCollection> v: AddCollectionArray(key, v); break;
-            case List<RawData>: throw new NotSupportedException("Arrays of RawData are not supported by the native-backed FonCollection store.");
-            case null: throw new ArgumentNullException(nameof(value));
-            default: throw new NotSupportedException($"Unsupported type for FON serialization: {value.GetType().FullName}");
-        }
-    }
-
-
-    private void AddScalar<T>(string key, T value, AddScalarFn<T> fn) {
-        var error = new FonError();
-        IntPtr raw = handle.DangerousGetHandle();
-        int rc;
-        try {
-            rc = fn(raw, key, value, ref error);
-        } finally {
-            GC.KeepAlive(handle);
-        }
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-    }
-
-
-    private void AddFixedArray<T>(string key, List<T> values, AddArrayFn<T> fn) {
-        var array = values.ToArray();
-        var error = new FonError();
-        IntPtr raw = handle.DangerousGetHandle();
-        int rc;
-        try {
-            rc = fn(raw, key, array, array.LongLength, ref error);
-        } finally {
-            GC.KeepAlive(handle);
-        }
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-    }
-
-
-    private void AddStringArray(string key, List<string> values) {
-        // string[] cannot be marshalled directly to LPUTF8Str[]; allocate one
-        // nul-terminated UTF-8 buffer per element and pass pointers instead.
-        var pointers = new IntPtr[values.Count];
-        try {
-            for (int i = 0; i < values.Count; i++) {
-                pointers[i] = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(values[i]);
-            }
-
-            var error = new FonError();
-            IntPtr raw = handle.DangerousGetHandle();
-            int rc;
-            try {
-                rc = NativeBindings.fon_collection_add_string_array(raw, key, pointers, pointers.LongLength, ref error);
-            } finally {
-                GC.KeepAlive(handle);
-            }
-            if (rc != FonResultCode.OK) {
-                throw new FonNativeException(error);
-            }
-        } finally {
-            foreach (var pointer in pointers) {
-                if (pointer != IntPtr.Zero) {
-                    System.Runtime.InteropServices.Marshal.FreeCoTaskMem(pointer);
-                }
-            }
-        }
-    }
-
-
-    private unsafe void AddRaw(string key, RawData value) {
-        var bytes = value.ToUnpackedBytes();
-        var error = new FonError();
-        IntPtr raw = handle.DangerousGetHandle();
-        int rc;
-        fixed (byte* p = bytes) {
-            try {
-                rc = NativeBindings.fon_collection_add_raw(raw, key, bytes.Length == 0 ? null : p, bytes.Length, ref error);
-            } finally {
-                GC.KeepAlive(handle);
-            }
-        }
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-    }
-
-
-    private void AddNestedCollection(string key, FonCollection child) {
-        if (ReferenceEquals(child, this)) {
-            throw new InvalidOperationException("A FonCollection cannot contain itself");
-        }
-        child.ThrowIfDisposed();
-
-        var error = new FonError();
-        IntPtr parentRaw = handle.DangerousGetHandle();
-        IntPtr childRaw = child.handle.DangerousGetHandle();
-        int rc;
-        try {
-            rc = NativeBindings.fon_collection_add_collection(parentRaw, key, childRaw, ref error);
-        } finally {
-            GC.KeepAlive(handle);
-            GC.KeepAlive(child.handle);
-        }
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        handle.AdoptChild(child.handle);
-    }
-
-
-    private void AddCollectionArray(string key, List<FonCollection> children) {
-        foreach (var child in children) {
+    /// <summary>
+    /// Checks the collections about to be stored in this one: owned, live, not this collection,
+    /// not the root of a view of this collection, and not repeated.
+    /// </summary>
+    private void ValidateChildren(IReadOnlyList<FonCollection> children) {
+        HashSet<FonCollection> seen = new HashSet<FonCollection>(ReferenceEqualityComparer.Instance);
+        foreach (FonCollection child in children) {
+            ValidateOwnedRoot(child);
             if (ReferenceEquals(child, this)) {
-                throw new InvalidOperationException("A FonCollection cannot contain itself");
+                throw new ArgumentException("A collection cannot contain itself.");
             }
-            child.ThrowIfDisposed();
-        }
-
-        var childRaws = new IntPtr[children.Count];
-        for (int i = 0; i < children.Count; i++) {
-            childRaws[i] = children[i].handle.DangerousGetHandle();
-        }
-
-        var error = new FonError();
-        IntPtr parentRaw = handle.DangerousGetHandle();
-        int rc;
-        try {
-            rc = NativeBindings.fon_collection_add_collection_array(parentRaw, key, childRaws, childRaws.LongLength, ref error);
-        } finally {
-            GC.KeepAlive(handle);
-            foreach (var child in children) {
-                GC.KeepAlive(child.handle);
+            if (view is not null && ReferenceEquals(view.root, child)) {
+                throw new ArgumentException("A collection cannot be stored inside its own nested view; that would create a cycle.");
             }
-        }
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        foreach (var child in children) {
-            handle.AdoptChild(child.handle);
+            if (!seen.Add(child)) {
+                throw new ArgumentException("The same collection appears more than once.");
+            }
         }
     }
 
 
-    // ==================== GET DISPATCH ====================
 
-    private delegate int GetScalarFn<T>(IntPtr collection, string key, out T value, ref FonError error);
-    private delegate int GetArrayFn<T>(IntPtr collection, string key, T[]? buffer, long bufferSize, out long actualSize, ref FonError error);
+    // ==================== MUTATION BOOKKEEPING ====================
+
+    /// <summary>
+    /// Runs a native mutation on this collection and then updates the versions that views
+    /// validate against.
+    /// </summary>
+    private void Mutate(Action<IntPtr> change) {
+        IntPtr raw = Access();
+        try {
+            change(raw);
+        } finally {
+            GC.KeepAlive(this);
+        }
+        AfterMutation();
+    }
+
+
+    private void AfterMutation() {
+        if (view is null) {
+            treeVersion++;
+            version++;
+            return;
+        }
+
+        if (view.dump is not null) {
+            FonDump dump = view.dump;
+            dump.Touch(view.recordId);
+            dump.version++;
+            if (view.isRecord) {
+                view.pointer = dump.GetRecordPointer(view.recordId);
+            } else {
+                dump.TryGetGens(view.recordId, out view.recordGen, out view.treeGen);
+            }
+            view.capturedVersion = dump.version;
+            return;
+        }
+
+        FonCollection root = view.root!;
+        root.treeVersion++;
+        root.version++;
+        view.treeVersion = root.treeVersion;
+        view.capturedVersion = root.version;
+    }
+
+
+    private FonNativeHandle OwnerHandle() {
+        if (view is null) {
+            return OwnedHandle;
+        }
+        if (view.dump is not null) {
+            return view.dump.Handle;
+        }
+        return view.root!.OwnedHandle;
+    }
+
+
+    private void TransferChildren(IReadOnlyList<FonCollection> children) {
+        FonNativeHandle owner = OwnerHandle();
+        foreach (FonCollection child in children) {
+            child.TransferTo(owner);
+        }
+    }
+
+
+    /// <summary>
+    /// Creates the view for a nested collection read from this one. The child's root is this
+    /// collection's root (or the dump, for collections inside a record).
+    /// </summary>
+    private FonCollection CreateChildView(IntPtr childPointer) {
+        return CreateChildViews(new IntPtr[] { childPointer })[0];
+    }
+
+
+    /// <summary>
+    /// Creates the views for several nested collections read from this one in a single pass.
+    /// The record generations of a dump-owned child are fetched once for the whole batch.
+    /// </summary>
+    private List<FonCollection> CreateChildViews(IReadOnlyList<IntPtr> childPointers) {
+        List<FonCollection> children = new List<FonCollection>(childPointers.Count);
+        if (childPointers.Count == 0) {
+            return children;
+        }
+
+        if (view is null) {
+            foreach (IntPtr childPointer in childPointers) {
+                children.Add(new FonCollection(new FonCollectionView {
+                    root = this,
+                    treeVersion = treeVersion,
+                    capturedVersion = version,
+                    pointer = childPointer
+                }));
+            }
+            return children;
+        }
+
+        if (view.dump is not null) {
+            FonDump dump = view.dump;
+            if (!dump.TryGetGens(view.recordId, out uint recordGen, out uint treeGen)) {
+                throw NativeApi.StaleView();
+            }
+            foreach (IntPtr childPointer in childPointers) {
+                children.Add(new FonCollection(new FonCollectionView {
+                    dump = dump,
+                    recordId = view.recordId,
+                    recordGen = recordGen,
+                    treeGen = treeGen,
+                    capturedVersion = dump.version,
+                    pointer = childPointer
+                }));
+            }
+            return children;
+        }
+
+        FonCollection root = view.root!;
+        foreach (IntPtr childPointer in childPointers) {
+            children.Add(new FonCollection(new FonCollectionView {
+                root = root,
+                treeVersion = root.treeVersion,
+                capturedVersion = root.version,
+                pointer = childPointer
+            }));
+        }
+        return children;
+    }
+
+
+
+    // ==================== KEYS AND VALUES ====================
+
+    /// <summary>Packed kind of the key (see <see cref="FonTypeCode"/>), or -1 if absent.</summary>
+    private int KindCode(string key) {
+        byte[] keyBytes = NativeApi.Encode(key);
+        return Read(raw => NativeApi.KindOf(raw, keyBytes));
+    }
 
 
     private object GetBoxedValue(string key, int kind) {
-        bool isArray = (kind & 0x100) != 0;
+        byte[] keyBytes = NativeApi.Encode(key);
+        bool isArray = (kind & FonTypeCode.ArrayFlag) != 0;
         char typeChar = (char)(kind & 0xFF);
-        IntPtr raw = handle.DangerousGetHandle();
-        try {
-            return (isArray, typeChar) switch {
-                (false, 'e') => GetScalar<byte>(raw, key, NativeBindings.fon_collection_get_byte),
-                (false, 't') => GetScalar<short>(raw, key, NativeBindings.fon_collection_get_short),
-                (false, 'i') => GetScalar<int>(raw, key, NativeBindings.fon_collection_get_int),
-                (false, 'u') => GetScalar<uint>(raw, key, NativeBindings.fon_collection_get_uint),
-                (false, 'l') => GetScalar<long>(raw, key, NativeBindings.fon_collection_get_long),
-                (false, 'g') => GetScalar<ulong>(raw, key, NativeBindings.fon_collection_get_ulong),
-                (false, 'f') => GetScalar<float>(raw, key, NativeBindings.fon_collection_get_float),
-                (false, 'd') => GetScalar<double>(raw, key, NativeBindings.fon_collection_get_double),
-                (false, 'b') => GetScalar<int>(raw, key, NativeBindings.fon_collection_get_bool) != 0,
-                (false, 's') => GetScalarString(raw, key),
-                (false, 'r') => GetRaw(raw, key),
-                (false, 'o') => GetNestedCollection(raw, key),
-                (true, 'e') => GetFixedArray<byte>(raw, key, NativeBindings.fon_collection_get_byte_array),
-                (true, 't') => GetFixedArray<short>(raw, key, NativeBindings.fon_collection_get_short_array),
-                (true, 'i') => GetFixedArray<int>(raw, key, NativeBindings.fon_collection_get_int_array),
-                (true, 'u') => GetFixedArray<uint>(raw, key, NativeBindings.fon_collection_get_uint_array),
-                (true, 'l') => GetFixedArray<long>(raw, key, NativeBindings.fon_collection_get_long_array),
-                (true, 'g') => GetFixedArray<ulong>(raw, key, NativeBindings.fon_collection_get_ulong_array),
-                (true, 'f') => GetFixedArray<float>(raw, key, NativeBindings.fon_collection_get_float_array),
-                (true, 'd') => GetFixedArray<double>(raw, key, NativeBindings.fon_collection_get_double_array),
-                (true, 'b') => GetFixedArray<byte>(raw, key, NativeBindings.fon_collection_get_bool_array).ConvertAll(b => b != 0),
-                (true, 's') => GetStringArray(raw, key),
-                (true, 'o') => GetCollectionArray(raw, key),
-                _ => throw new NotSupportedException($"Unknown native type tag '{typeChar}' (array={isArray})")
-            };
-        } finally {
-            GC.KeepAlive(handle);
+        return Read(raw => ReadValue(raw, keyBytes, typeChar, isArray));
+    }
+
+
+    private unsafe object ReadValue(IntPtr raw, byte[] keyBytes, char typeChar, bool isArray) {
+        if (isArray) {
+            return ReadArrayValue(raw, keyBytes, typeChar);
+        }
+
+        switch (typeChar) {
+            case FonTypeCode.Byte:
+                return NativeApi.GetScalar<byte>(raw, keyBytes, NativeBindings.fon_collection_get_byte);
+            case FonTypeCode.Short:
+                return NativeApi.GetScalar<short>(raw, keyBytes, NativeBindings.fon_collection_get_short);
+            case FonTypeCode.Int:
+                return NativeApi.GetScalar<int>(raw, keyBytes, NativeBindings.fon_collection_get_int);
+            case FonTypeCode.UInt:
+                return NativeApi.GetScalar<uint>(raw, keyBytes, NativeBindings.fon_collection_get_uint);
+            case FonTypeCode.Long:
+                return NativeApi.GetScalar<long>(raw, keyBytes, NativeBindings.fon_collection_get_long);
+            case FonTypeCode.ULong:
+                return NativeApi.GetScalar<ulong>(raw, keyBytes, NativeBindings.fon_collection_get_ulong);
+            case FonTypeCode.Float:
+                return NativeApi.GetScalar<float>(raw, keyBytes, NativeBindings.fon_collection_get_float);
+            case FonTypeCode.Double:
+                return NativeApi.GetScalar<double>(raw, keyBytes, NativeBindings.fon_collection_get_double);
+            case FonTypeCode.Bool:
+                return NativeApi.GetScalar<int>(raw, keyBytes, NativeBindings.fon_collection_get_bool) != 0;
+            case FonTypeCode.String:
+                return NativeApi.DecodeUtf8(NativeApi.GetBytes(raw, keyBytes, NativeBindings.fon_collection_get_string));
+            case FonTypeCode.Raw:
+                return new RawData(NativeApi.GetBytes(raw, keyBytes, NativeBindings.fon_collection_get_raw));
+            case FonTypeCode.Object:
+                return CreateChildView(NativeApi.GetChild(raw, keyBytes));
+            default:
+                throw new NotSupportedException($"Unknown native type tag '{typeChar}' (array=false)");
         }
     }
 
 
-    private static T GetScalar<T>(IntPtr raw, string key, GetScalarFn<T> fn) {
-        var error = new FonError();
-        int rc = fn(raw, key, out T value, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
+    private unsafe object ReadArrayValue(IntPtr raw, byte[] keyBytes, char typeChar) {
+        switch (typeChar) {
+            case FonTypeCode.Byte:
+                return NativeApi.GetArray<byte>(raw, keyBytes, NativeBindings.fon_collection_get_byte_array).ToList();
+            case FonTypeCode.Short:
+                return NativeApi.GetArray<short>(raw, keyBytes, NativeBindings.fon_collection_get_short_array).ToList();
+            case FonTypeCode.Int:
+                return NativeApi.GetArray<int>(raw, keyBytes, NativeBindings.fon_collection_get_int_array).ToList();
+            case FonTypeCode.UInt:
+                return NativeApi.GetArray<uint>(raw, keyBytes, NativeBindings.fon_collection_get_uint_array).ToList();
+            case FonTypeCode.Long:
+                return NativeApi.GetArray<long>(raw, keyBytes, NativeBindings.fon_collection_get_long_array).ToList();
+            case FonTypeCode.ULong:
+                return NativeApi.GetArray<ulong>(raw, keyBytes, NativeBindings.fon_collection_get_ulong_array).ToList();
+            case FonTypeCode.Float:
+                return NativeApi.GetArray<float>(raw, keyBytes, NativeBindings.fon_collection_get_float_array).ToList();
+            case FonTypeCode.Double:
+                return NativeApi.GetArray<double>(raw, keyBytes, NativeBindings.fon_collection_get_double_array).ToList();
+            case FonTypeCode.Bool:
+                return NativeApi.GetArray<byte>(raw, keyBytes, NativeBindings.fon_collection_get_bool_array).Select(item => item != 0).ToList();
+            case FonTypeCode.String:
+                return NativeApi.GetStringArray(raw, keyBytes).ToList();
+            case FonTypeCode.Object:
+                return CreateChildViews(NativeApi.GetChildren(raw, keyBytes));
+            default:
+                throw new NotSupportedException($"Unknown native type tag '{typeChar}' (array=true)");
         }
-        return value;
     }
 
 
-    private static List<T> GetFixedArray<T>(IntPtr raw, string key, GetArrayFn<T> fn) {
-        var error = new FonError();
-        int rc = fn(raw, key, null, 0, out long size, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
+    private unsafe void PutValue(string key, object value, int mode) {
+        switch (value) {
+            case byte v:
+                PutScalar(key, v, mode, NativeBindings.fon_collection_put_byte);
+                break;
+            case short v:
+                PutScalar(key, v, mode, NativeBindings.fon_collection_put_short);
+                break;
+            case int v:
+                PutScalar(key, v, mode, NativeBindings.fon_collection_put_int);
+                break;
+            case uint v:
+                PutScalar(key, v, mode, NativeBindings.fon_collection_put_uint);
+                break;
+            case long v:
+                PutScalar(key, v, mode, NativeBindings.fon_collection_put_long);
+                break;
+            case ulong v:
+                PutScalar(key, v, mode, NativeBindings.fon_collection_put_ulong);
+                break;
+            case float v:
+                PutScalar(key, v, mode, NativeBindings.fon_collection_put_float);
+                break;
+            case double v:
+                PutScalar(key, v, mode, NativeBindings.fon_collection_put_double);
+                break;
+            case bool v:
+                PutScalar(key, v ? 1 : 0, mode, NativeBindings.fon_collection_put_bool);
+                break;
+            case string v:
+                PutBytes(key, NativeApi.Encode(v), mode, NativeBindings.fon_collection_put_string);
+                break;
+            case RawData v:
+                PutBytes(key, v.ToUnpackedBytes(), mode, NativeBindings.fon_collection_put_raw);
+                break;
+            case FonCollection v:
+                PutChild(key, v, mode);
+                break;
+            case List<byte> v:
+                PutArray(key, v.ToArray(), mode, NativeBindings.fon_collection_put_byte_array);
+                break;
+            case List<short> v:
+                PutArray(key, v.ToArray(), mode, NativeBindings.fon_collection_put_short_array);
+                break;
+            case List<int> v:
+                PutArray(key, v.ToArray(), mode, NativeBindings.fon_collection_put_int_array);
+                break;
+            case List<uint> v:
+                PutArray(key, v.ToArray(), mode, NativeBindings.fon_collection_put_uint_array);
+                break;
+            case List<long> v:
+                PutArray(key, v.ToArray(), mode, NativeBindings.fon_collection_put_long_array);
+                break;
+            case List<ulong> v:
+                PutArray(key, v.ToArray(), mode, NativeBindings.fon_collection_put_ulong_array);
+                break;
+            case List<float> v:
+                PutArray(key, v.ToArray(), mode, NativeBindings.fon_collection_put_float_array);
+                break;
+            case List<double> v:
+                PutArray(key, v.ToArray(), mode, NativeBindings.fon_collection_put_double_array);
+                break;
+            case List<bool> v:
+                PutArray(key, v.Select(item => (byte)(item ? 1 : 0)).ToArray(), mode, NativeBindings.fon_collection_put_bool_array);
+                break;
+            case List<string> v:
+                PutStringArray(key, v.ToArray(), mode);
+                break;
+            case List<FonCollection> v:
+                PutChildren(key, v, mode);
+                break;
+            case List<RawData>:
+                throw new NotSupportedException("Arrays of RawData are not supported by FonCollection.");
+            case null:
+                throw new ArgumentNullException(nameof(value));
+            default:
+                throw new NotSupportedException($"Unsupported type for FON serialization: {value.GetType().FullName}");
         }
-        if (size == 0) {
-            return new List<T>();
-        }
-        var buffer = new T[size];
-        rc = fn(raw, key, buffer, size, out _, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        return new List<T>(buffer);
     }
 
 
-    private static string GetScalarString(IntPtr raw, string key) {
-        var error = new FonError();
-        var buffer = new byte[StringBufferSize];
-        int rc = NativeBindings.fon_collection_get_string(raw, key, buffer, buffer.Length, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        return DecodeCString(buffer);
+    private void PutScalar<T>(string key, T value, int mode, ScalarPut<T> put) where T : unmanaged {
+        byte[] keyBytes = NativeApi.Encode(key);
+        Mutate(raw => NativeApi.PutScalar(raw, keyBytes, value, mode, put));
     }
 
 
-    private static List<string> GetStringArray(IntPtr raw, string key) {
-        var error = new FonError();
-        int rc = NativeBindings.fon_collection_get_string_array_count(raw, key, out long count, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        var list = new List<string>((int)count);
-        var buffer = new byte[StringBufferSize];
-        for (long i = 0; i < count; i++) {
-            rc = NativeBindings.fon_collection_get_string_array_item(raw, key, i, buffer, buffer.Length, ref error);
-            if (rc != FonResultCode.OK) {
-                throw new FonNativeException(error);
-            }
-            list.Add(DecodeCString(buffer));
-        }
-        return list;
+    private void PutBytes(string key, byte[] value, int mode, BytesPut put) {
+        byte[] keyBytes = NativeApi.Encode(key);
+        Mutate(raw => NativeApi.PutBytes(raw, keyBytes, value, mode, put));
     }
 
 
-    private static RawData GetRaw(IntPtr raw, string key) {
-        var error = new FonError();
-        int rc = NativeBindings.fon_collection_get_raw(raw, key, null, 0, out long size, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        if (size == 0) {
-            return new RawData(Array.Empty<byte>());
-        }
-        var buffer = new byte[size];
-        rc = NativeBindings.fon_collection_get_raw(raw, key, buffer, size, out _, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        return new RawData(buffer);
+    private void PutArray<T>(string key, T[] values, int mode, ArrayPut<T> put) where T : unmanaged {
+        byte[] keyBytes = NativeApi.Encode(key);
+        Mutate(raw => NativeApi.PutArray(raw, keyBytes, values, mode, put));
     }
 
 
-    private static FonCollection GetNestedCollection(IntPtr raw, string key) {
-        var error = new FonError();
-        IntPtr childRaw = NativeBindings.fon_collection_get_collection(raw, key, ref error);
-        if (childRaw == IntPtr.Zero) {
-            throw new FonNativeException(error);
-        }
-        return FromBorrowedHandle(childRaw);
+    private void PutStringArray(string key, string[] items, int mode) {
+        byte[] keyBytes = NativeApi.Encode(key);
+        Mutate(raw => NativeApi.PutStringArray(raw, keyBytes, items, mode));
     }
 
 
-    private static List<FonCollection> GetCollectionArray(IntPtr raw, string key) {
-        var error = new FonError();
-        int rc = NativeBindings.fon_collection_get_collection_array(raw, key, null, 0, out long size, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        var result = new List<FonCollection>((int)size);
-        if (size == 0) {
-            return result;
-        }
-        var buffer = new IntPtr[size];
-        rc = NativeBindings.fon_collection_get_collection_array(raw, key, buffer, size, out _, ref error);
-        if (rc != FonResultCode.OK) {
-            throw new FonNativeException(error);
-        }
-        foreach (var childRaw in buffer) {
-            result.Add(FromBorrowedHandle(childRaw));
-        }
-        return result;
+    private void PutChild(string key, FonCollection child, int mode) {
+        byte[] keyBytes = NativeApi.Encode(key);
+        List<FonCollection> children = new List<FonCollection> { child };
+        Mutate(raw => {
+            ValidateChildren(children);
+            NativeApi.PutChild(raw, keyBytes, child.OwnedPointer(), mode);
+        });
+        TransferChildren(children);
+    }
+
+
+    private void PutChildren(string key, IReadOnlyList<FonCollection> children, int mode) {
+        byte[] keyBytes = NativeApi.Encode(key);
+        Mutate(raw => {
+            ValidateChildren(children);
+            IntPtr[] pointers = children.Select(item => item.OwnedPointer()).ToArray();
+            NativeApi.PutChildren(raw, keyBytes, pointers, mode);
+        });
+        TransferChildren(children);
     }
 }

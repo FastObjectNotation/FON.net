@@ -1,164 +1,153 @@
-//! Nested collections: a single child object, or an array of child objects.
-//! Adding always transfers ownership of the child handle(s) into the parent;
-//! getting always returns a borrowed handle owned by the parent.
+//! Nested collections: a single child object or an array of child objects.
+//! A successful put transfers ownership of the child handle(s) into the parent;
+//! a get returns borrowed handles owned by the parent.
 
-use std::ffi::{c_char, c_void};
-use std::ptr;
-use std::slice;
+use std::collections::HashSet;
+use std::ffi::c_void;
 
 use fon::types::{FonCollection, FonValue};
 
-use crate::error::{cstr_to_str, set_error, FonError, FON_ERROR_INVALID_ARGUMENT, FON_OK};
+use crate::collection::{find_mut, put_field, type_mismatch};
+use crate::error::{
+    finish, handle_or_report, invalid, slice_arg, write_sized, Failure, FonError,
+};
 
 
-#[no_mangle]
-pub extern "C" fn fon_collection_add_collection(
-    parent: *mut c_void,
-    key: *const c_char,
-    child: *mut c_void,
-    error: *mut FonError,
-) -> i32 {
-    if parent.is_null() || key.is_null() || child.is_null() {
-        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
-        return FON_ERROR_INVALID_ARGUMENT;
+/// Validates a child handle and takes ownership of it. Runs only after the put
+/// checks pass, so a rejected child is never consumed.
+unsafe fn take_child(child: *mut c_void, target: *mut c_void) -> Result<FonValue, Failure> {
+    if child.is_null() {
+        return Err(invalid("child collection is null"));
     }
-    let k = match unsafe { cstr_to_str(key) } {
-        Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
-            return FON_ERROR_INVALID_ARGUMENT;
-        }
-    };
-    unsafe {
-        let p = &mut *(parent as *mut FonCollection);
-        // Take ownership of child handle.
-        let c = Box::from_raw(child as *mut FonCollection);
-        p.add(k, FonValue::Object(c));
+    if child == target {
+        return Err(invalid("a collection cannot be put into itself"));
     }
-    FON_OK
+    Ok(FonValue::Object(Box::from_raw(child as *mut FonCollection)))
 }
 
 
-#[no_mangle]
-pub extern "C" fn fon_collection_add_collection_array(
-    parent: *mut c_void,
-    key: *const c_char,
+/// Validates an array of child handles and takes ownership of all of them.
+unsafe fn take_children(
     children: *const *mut c_void,
     count: i64,
-    error: *mut FonError,
-) -> i32 {
-    if parent.is_null() || key.is_null() || count < 0 || (count > 0 && children.is_null()) {
-        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
-        return FON_ERROR_INVALID_ARGUMENT;
-    }
-    let k = match unsafe { cstr_to_str(key) } {
-        Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
-            return FON_ERROR_INVALID_ARGUMENT;
+    target: *mut c_void,
+) -> Result<FonValue, Failure> {
+    let handles: &[*mut c_void] = slice_arg(children, count)?;
+    let mut seen: HashSet<usize> = HashSet::with_capacity(handles.len());
+    for &handle in handles {
+        if handle.is_null() {
+            return Err(invalid("child collection is null"));
         }
-    };
-    unsafe {
-        let p = &mut *(parent as *mut FonCollection);
-        let mut vec: Vec<Box<FonCollection>> = Vec::with_capacity(count as usize);
-        let raw_children = slice::from_raw_parts(children, count as usize);
-        for &handle in raw_children {
-            // Take ownership of each child handle.
-            vec.push(Box::from_raw(handle as *mut FonCollection));
+        if handle == target {
+            return Err(invalid("a collection cannot be put into itself"));
         }
-        p.add(k, FonValue::ObjectArray(vec));
+        if !seen.insert(handle as usize) {
+            return Err(invalid("the same child collection appears twice"));
+        }
     }
-    FON_OK
+    let boxes: Vec<Box<FonCollection>> = handles
+        .iter()
+        .map(|&handle| Box::from_raw(handle as *mut FonCollection))
+        .collect();
+    Ok(FonValue::ObjectArray(boxes))
 }
 
 
-/// Gets a borrowed handle to a nested collection under `key`. Ownership: the returned
-/// handle is owned by `parent`. The caller MUST NOT call `fon_collection_free` on it.
-/// Returns null if the key is missing or the value is not a nested collection.
+#[no_mangle]
+pub extern "C" fn fon_collection_put_collection(
+    collection: *mut c_void,
+    key: *const u8,
+    key_len: i64,
+    child: *mut c_void,
+    mode: i32,
+    error: *mut FonError,
+) -> i32 {
+    let result: Result<(), Failure> = unsafe {
+        put_field(collection, key, key_len, mode, || take_child(child, collection))
+    };
+    unsafe { finish(error, result) }
+}
+
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn fon_collection_put_collection_array(
+    collection: *mut c_void,
+    key: *const u8,
+    key_len: i64,
+    children: *const *mut c_void,
+    count: i64,
+    mode: i32,
+    error: *mut FonError,
+) -> i32 {
+    let result: Result<(), Failure> = unsafe {
+        put_field(collection, key, key_len, mode, || take_children(children, count, collection))
+    };
+    unsafe { finish(error, result) }
+}
+
+
+/// Returns a borrowed handle to the nested collection under `key`.
 #[no_mangle]
 pub extern "C" fn fon_collection_get_collection(
-    parent: *mut c_void,
-    key: *const c_char,
+    collection: *mut c_void,
+    key: *const u8,
+    key_len: i64,
     error: *mut FonError,
 ) -> *mut c_void {
-    if parent.is_null() || key.is_null() {
-        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
-        return ptr::null_mut();
-    }
-    unsafe {
-        let p = &mut *(parent as *mut FonCollection);
-        let k = match cstr_to_str(key) {
-            Ok(s) => s.to_owned(),
-            Err(e) => {
-                set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
-                return ptr::null_mut();
-            }
-        };
-        match p.get_mut(&k) {
-            Some(FonValue::Object(boxed)) => {
-                // Return borrowed pointer to the heap-allocated FonCollection inside the Box.
-                // Stable as long as the parent FonCollection outlives the borrowed handle.
-                let raw: *mut FonCollection = &mut **boxed;
-                raw as *mut c_void
-            }
-            _ => {
-                set_error(
-                    error,
-                    FON_ERROR_INVALID_ARGUMENT,
-                    "Key not found or not a nested collection",
-                );
-                ptr::null_mut()
-            }
-        }
+    let result: Result<*mut c_void, Failure> =
+        unsafe { borrowed_child(collection, key, key_len) };
+    unsafe { handle_or_report(error, result) }
+}
+
+
+unsafe fn borrowed_child(
+    collection: *mut c_void,
+    key: *const u8,
+    key_len: i64,
+) -> Result<*mut c_void, Failure> {
+    let (name, value) = find_mut(collection, key, key_len)?;
+    match value {
+        FonValue::Object(child) => Ok(&mut **child as *mut FonCollection as *mut c_void),
+        other => Err(type_mismatch(name, other, "collection")),
     }
 }
 
 
-/// Gets borrowed handles for an array of nested collections. Pass `buffer=null` with
-/// `buffer_size=0` to query `actual_size` only. Ownership: every returned handle is
-/// owned by `parent`. The caller MUST NOT call `fon_collection_free` on any of them.
+/// Writes borrowed handles of the nested collections under `key` (size-query pattern).
 #[no_mangle]
 pub extern "C" fn fon_collection_get_collection_array(
-    parent: *mut c_void,
-    key: *const c_char,
+    collection: *mut c_void,
+    key: *const u8,
+    key_len: i64,
     buffer: *mut *mut c_void,
-    buffer_size: i64,
-    actual_size: *mut i64,
+    capacity: i64,
+    actual: *mut i64,
     error: *mut FonError,
 ) -> i32 {
-    if parent.is_null() || key.is_null() || actual_size.is_null() {
-        set_error(error, FON_ERROR_INVALID_ARGUMENT, "Invalid argument");
-        return FON_ERROR_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let p = &mut *(parent as *mut FonCollection);
-        let k = match cstr_to_str(key) {
-            Ok(s) => s.to_owned(),
-            Err(e) => {
-                set_error(error, FON_ERROR_INVALID_ARGUMENT, &e.to_string());
-                return FON_ERROR_INVALID_ARGUMENT;
-            }
-        };
-        let arr = match p.get_mut(&k) {
-            Some(FonValue::ObjectArray(v)) => v,
-            _ => {
-                set_error(
-                    error,
-                    FON_ERROR_INVALID_ARGUMENT,
-                    "Key not found or not an array of nested collections",
-                );
-                return FON_ERROR_INVALID_ARGUMENT;
-            }
-        };
-        *actual_size = arr.len() as i64;
-        if !buffer.is_null() && buffer_size > 0 {
-            let copy_count = (buffer_size as usize).min(arr.len());
-            let dst = slice::from_raw_parts_mut(buffer, copy_count);
-            for (i, child) in arr.iter_mut().take(copy_count).enumerate() {
-                let raw: *mut FonCollection = &mut **child;
-                dst[i] = raw as *mut c_void;
-            }
+    let result: Result<(), Failure> = unsafe { collection_array_into(collection, key, key_len, buffer, capacity, actual) };
+    unsafe { finish(error, result) }
+}
+
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn collection_array_into(
+    collection: *mut c_void,
+    key: *const u8,
+    key_len: i64,
+    buffer: *mut *mut c_void,
+    capacity: i64,
+    actual: *mut i64,
+) -> Result<(), Failure> {
+    let (name, value) = find_mut(collection, key, key_len)?;
+    match value {
+        FonValue::ObjectArray(children) => {
+            let handles: Vec<*mut c_void> = children
+                .iter_mut()
+                .map(|child| &mut **child as *mut FonCollection as *mut c_void)
+                .collect();
+            write_sized(handles.as_slice(), buffer, capacity, actual)
         }
-        FON_OK
+        other => Err(type_mismatch(name, other, "collection array")),
     }
 }

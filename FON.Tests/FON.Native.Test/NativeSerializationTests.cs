@@ -5,167 +5,177 @@ namespace FON.Native.Test;
 
 
 /// <summary>
-/// Tests for native serialization/deserialization operations.
+/// Raw ABI tests for collection scalars, put modes, result codes and keys/kinds.
 /// </summary>
-public class NativeSerializationTests {
+public unsafe class NativeSerializationTests {
     [Fact]
     public void NativeCollection_CreateAndFree() {
-        var collection = NativeBindings.fon_collection_create();
+        IntPtr collection = NativeBindings.fon_collection_create();
         Assert.NotEqual(IntPtr.Zero, collection);
-
+        Assert.Equal(0, NativeBindings.fon_collection_size(collection));
         NativeBindings.fon_collection_free(collection);
-    }
-
-
-    [Fact]
-    public void NativeDump_CreateAndFree() {
-        var dump = NativeBindings.fon_dump_create();
-        Assert.NotEqual(IntPtr.Zero, dump);
-
-        NativeBindings.fon_dump_free(dump);
     }
 
 
     [Fact]
     public void NativeCollection_AddAndGetInt() {
-        var collection = NativeBindings.fon_collection_create();
-        var error = new FonError();
-
-        var result = NativeBindings.fon_collection_add_int(collection, "test_key", 42, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        result = NativeBindings.fon_collection_get_int(collection, "test_key", out int value, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-        Assert.Equal(42, value);
-
-        NativeBindings.fon_collection_free(collection);
-    }
-
-
-    [Fact]
-    public void NativeCollection_AddAndGetLong() {
-        var collection = NativeBindings.fon_collection_create();
-        var error = new FonError();
-
-        var result = NativeBindings.fon_collection_add_long(collection, "big_number", 9876543210L, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        result = NativeBindings.fon_collection_get_long(collection, "big_number", out long value, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-        Assert.Equal(9876543210L, value);
-
-        NativeBindings.fon_collection_free(collection);
-    }
-
-
-    [Fact]
-    public void NativeCollection_AddAndGetFloat() {
-        var collection = NativeBindings.fon_collection_create();
-        var error = new FonError();
-
-        var result = NativeBindings.fon_collection_add_float(collection, "pi", 3.14159f, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        result = NativeBindings.fon_collection_get_float(collection, "pi", out float value, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-        Assert.Equal(3.14159f, value, precision: 5);
-
-        NativeBindings.fon_collection_free(collection);
-    }
-
-
-    [Fact]
-    public void NativeCollection_AddAndGetDouble() {
-        var collection = NativeBindings.fon_collection_create();
-        var error = new FonError();
-
-        var result = NativeBindings.fon_collection_add_double(collection, "e", 2.71828182845904, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        result = NativeBindings.fon_collection_get_double(collection, "e", out double value, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-        Assert.Equal(2.71828182845904, value, precision: 10);
-
-        NativeBindings.fon_collection_free(collection);
-    }
-
-
-    [Fact]
-    public void NativeCollection_AddAndGetBool() {
-        var collection = NativeBindings.fon_collection_create();
-        var error = new FonError();
-
-        var result = NativeBindings.fon_collection_add_bool(collection, "flag", 1, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        result = NativeBindings.fon_collection_get_bool(collection, "flag", out int value, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-        Assert.Equal(1, value);
-
-        NativeBindings.fon_collection_free(collection);
-    }
-
-
-    [Fact]
-    public void NativeCollection_AddAndGetString() {
-        var collection = NativeBindings.fon_collection_create();
-        var error = new FonError();
-
-        var result = NativeBindings.fon_collection_add_string(collection, "greeting", "Hello, World!", ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        var buffer = new byte[256];
-        result = NativeBindings.fon_collection_get_string(collection, "greeting", buffer, buffer.Length, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        var value = System.Text.Encoding.UTF8.GetString(buffer).TrimEnd('\0');
-        Assert.Equal("Hello, World!", value);
-
-        NativeBindings.fon_collection_free(collection);
-    }
-
-
-    [Fact]
-    public void NativeCollection_AddAndGetIntArray() {
-        var collection = NativeBindings.fon_collection_create();
-        var error = new FonError();
-
-        int[] input = [1, 2, 3, 4, 5];
-        var result = NativeBindings.fon_collection_add_int_array(collection, "numbers", input, input.Length, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        // First call to get size
-        result = NativeBindings.fon_collection_get_int_array(collection, "numbers", null, 0, out long actualSize, ref error);
-        Assert.Equal(5, actualSize);
-
-        // Second call to get values
-        var output = new int[actualSize];
-        result = NativeBindings.fon_collection_get_int_array(collection, "numbers", output, output.Length, out _, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-        Assert.Equal(input, output);
-
-        NativeBindings.fon_collection_free(collection);
-    }
-
-
-    [Fact]
-    public void NativeCollection_AddAndGetFloatArray() {
-        var collection = NativeBindings.fon_collection_create();
-        var error = new FonError();
-
-        float[] input = [1.1f, 2.2f, 3.3f];
-        var result = NativeBindings.fon_collection_add_float_array(collection, "floats", input, input.Length, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-
-        var output = new float[3];
-        result = NativeBindings.fon_collection_get_float_array(collection, "floats", output, output.Length, out long actualSize, ref error);
-        Assert.Equal(FonResultCode.OK, result);
-        Assert.Equal(3, actualSize);
-
-        for (int i = 0; i < input.Length; i++) {
-            Assert.Equal(input[i], output[i], precision: 5);
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, "n", 123, FonPutMode.Add, &error));
+            Assert.Equal(FonResultCode.OK, NativeKit.GetInt(collection, "n", out int value, &error));
+            Assert.Equal(123, value);
+        } finally {
+            NativeBindings.fon_collection_free(collection);
         }
+    }
 
-        NativeBindings.fon_collection_free(collection);
+
+    [Fact]
+    public void NativeCollection_AddExistingKey_ReturnsAlreadyExists() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, "n", 1, FonPutMode.Add, &error));
+            int rc = NativeKit.PutInt(collection, "n", 2, FonPutMode.Add, &error);
+            Assert.Equal(FonResultCode.AlreadyExists, rc);
+            Assert.Contains("n", error.Message);
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeCollection_SetAbsentKey_ReturnsNotFound() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            int rc = NativeKit.PutInt(collection, "missing", 1, FonPutMode.Set, &error);
+            Assert.Equal(FonResultCode.NotFound, rc);
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeCollection_UpsertReplacesAndChangesType() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, "k", 1, FonPutMode.Upsert, &error));
+            Assert.Equal(FonResultCode.OK, NativeKit.PutString(collection, "k", "text", FonPutMode.Upsert, &error));
+            Assert.Equal("text", NativeKit.GetString(collection, "k"));
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeCollection_GetWrongType_ReturnsTypeMismatch() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutString(collection, "s", "x", FonPutMode.Add, &error));
+            int rc = NativeKit.GetInt(collection, "s", out _, &error);
+            Assert.Equal(FonResultCode.TypeMismatch, rc);
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeCollection_GetAbsentKey_ReturnsNotFound() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            int rc = NativeKit.GetInt(collection, "nope", out _, &error);
+            Assert.Equal(FonResultCode.NotFound, rc);
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeCollection_KindOf_ReportsTypeAndArrayFlag() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        byte[] key = NativeKit.Utf8("i");
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, "i", 1, FonPutMode.Add, &error));
+            fixed (byte* keyPtr = key) {
+                Assert.Equal((int)FonTypeCode.Int, NativeBindings.fon_collection_kind_of(collection, keyPtr, key.Length));
+            }
+            byte[] absent = NativeKit.Utf8("absent");
+            fixed (byte* absentPtr = absent) {
+                Assert.Equal(-1, NativeBindings.fon_collection_kind_of(collection, absentPtr, absent.Length));
+            }
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeCollection_Keys_InsertionOrderWithKinds() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutString(collection, "zeta", "z", FonPutMode.Add, &error));
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, "alpha", 1, FonPutMode.Add, &error));
+
+            List<(string Key, int Kind)> keys = NativeKit.KeysWithKinds(collection);
+
+            Assert.Equal(2, keys.Count);
+            Assert.Equal("zeta", keys[0].Key);
+            Assert.Equal((int)FonTypeCode.String, keys[0].Kind);
+            Assert.Equal("alpha", keys[1].Key);
+            Assert.Equal((int)FonTypeCode.Int, keys[1].Kind);
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeCollection_RemoveReturnsOneThenZero() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        byte[] key = NativeKit.Utf8("k");
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, "k", 1, FonPutMode.Add, &error));
+            fixed (byte* keyPtr = key) {
+                Assert.Equal(1, NativeBindings.fon_collection_remove(collection, keyPtr, key.Length));
+                Assert.Equal(0, NativeBindings.fon_collection_remove(collection, keyPtr, key.Length));
+            }
+            Assert.Equal(0, NativeBindings.fon_collection_size(collection));
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
+    }
+
+
+    [Fact]
+    public void NativeCollection_Clone_IsDeepAndIndependent() {
+        IntPtr collection = NativeBindings.fon_collection_create();
+        FonError error = default;
+        try {
+            Assert.Equal(FonResultCode.OK, NativeKit.PutInt(collection, "n", 1, FonPutMode.Add, &error));
+            IntPtr clone = NativeBindings.fon_collection_clone(collection, &error);
+            Assert.NotEqual(IntPtr.Zero, clone);
+            try {
+                Assert.Equal(FonResultCode.OK, NativeKit.PutInt(clone, "other", 2, FonPutMode.Add, &error));
+                Assert.Equal(1, NativeBindings.fon_collection_size(collection));
+                Assert.Equal(2, NativeBindings.fon_collection_size(clone));
+            } finally {
+                NativeBindings.fon_collection_free(clone);
+            }
+        } finally {
+            NativeBindings.fon_collection_free(collection);
+        }
     }
 }

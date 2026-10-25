@@ -8,8 +8,7 @@ public partial class Fon {
     private static bool deserializeRawUnpack = false;
 
     /// <summary>
-    /// Automatically decompress RawData (Z85) during deserialization. Mirrors the
-    /// native <c>fon_set_raw_unpack</c> global setting.
+    /// Automatically decompress RawData (Z85) during deserialization.
     /// </summary>
     public static bool DeserializeRawUnpack {
         get => deserializeRawUnpack;
@@ -24,8 +23,7 @@ public partial class Fon {
 
     /// <summary>
     /// Maximum number of nested brackets ({} or []) the parser will accept
-    /// before rejecting input. Must be at least 1. Default: 64. Mirrors the
-    /// native <c>fon_set_max_depth</c> global setting.
+    /// before rejecting input. Must be at least 1. Default: 64.
     /// </summary>
     public static int MaxDepth {
         get => maxDepth;

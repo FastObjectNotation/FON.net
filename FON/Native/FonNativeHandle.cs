@@ -4,7 +4,7 @@ namespace FON.Native;
 
 
 /// <summary>
-/// Base for SafeHandle wrappers around a native FON pointer (a Dump or a Collection).
+/// Base for SafeHandle owners of a native FON pointer (a dump or a collection).
 /// Tracks an approximate native-memory-pressure charge via <see cref="GC.AddMemoryPressure"/>
 /// so the GC collects handle-owning objects promptly even when the caller never calls
 /// <see cref="IDisposable.Dispose"/>, and supports ownership hand-off for the native APIs
