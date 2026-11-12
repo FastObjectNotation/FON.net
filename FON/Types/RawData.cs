@@ -66,10 +66,10 @@ public class RawData : IDisposable {
         }
 
         // Z85: 5 chars -> 4 bytes, with possible padding
-        var paddingInfo = GetPaddingInfo(encoded);
-        int decodedLength = (encoded.Length / 5 * 4) - paddingInfo.removedBytes;
+        (int removedBytes, bool hasPadding) paddingInfo = GetPaddingInfo(encoded);
+        int groups = (encoded.Length - (paddingInfo.hasPadding ? 1 : 0)) / 5;
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(decodedLength + 4);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(groups * 4);
         try {
             int written = Z85DecodeBytes(encoded.AsSpan(), buffer, paddingInfo);
             data = buffer[..written];
@@ -163,17 +163,20 @@ public class RawData : IDisposable {
 
 
 
+    /// <summary>
+    /// The text is whole 5-character groups, plus one trailing digit 1, 2 or 3 when the data
+    /// was padded. The length alone tells whether that digit is present: a full group may
+    /// itself end in 1, 2 or 3.
+    /// </summary>
     private static (int removedBytes, bool hasPadding) GetPaddingInfo(string encoded) {
-        if (encoded.Length == 0) {
-            return (0, false);
+        switch (encoded.Length % 5) {
+            case 0:
+                return (0, false);
+            case 1 when encoded.Length > 1 && encoded[^1] >= '1' && encoded[^1] <= '3':
+                return (encoded[^1] - '0', true);
+            default:
+                throw new FormatException($"Invalid Z85 length {encoded.Length}");
         }
-
-        // Check if last char is a padding marker (1, 2, or 3)
-        char last = encoded[^1];
-        if (last >= '1' && last <= '3') {
-            return (last - '0', true);
-        }
-        return (0, false);
     }
 
 
@@ -185,7 +188,7 @@ public class RawData : IDisposable {
         int writePos = 0;
 
         for (int i = 0; i < inputLen; i += 5) {
-            uint value = 0;
+            ulong group = 0;
             for (int j = 0; j < 5; j++) {
                 char c = input[i + j];
                 if (c > 127) {
@@ -195,8 +198,12 @@ public class RawData : IDisposable {
                 if (decoded == 255) {
                     throw new FormatException($"Invalid Z85 character '{c}' at position {i + j}");
                 }
-                value = value * 85 + decoded;
+                group = group * 85 + decoded;
             }
+            if (group > uint.MaxValue) {
+                throw new FormatException($"Z85 group at position {i} exceeds 32 bits");
+            }
+            uint value = (uint)group;
 
             output[writePos] = (byte)(value >> 24);
             output[writePos + 1] = (byte)(value >> 16);

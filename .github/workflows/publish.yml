@@ -392,7 +392,7 @@ jobs:
 
     - name: Publish to NuGet.org
       run: |
-        dotnet nuget push "./packages/*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ secrets.NUGET_API_TOKEN }}
+        dotnet nuget push "./packages/*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ secrets.NUGET_API_TOKEN }} --skip-duplicate
 
     - name: Publish to GitHub Packages
       run: |

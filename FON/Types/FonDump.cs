@@ -14,6 +14,10 @@ namespace FON.Types;
 /// <see cref="FonStaleViewException"/> once its record was replaced or removed, or a field of
 /// its record changed (for nested views). Views of other ids stay valid. Disposing the dump
 /// makes every view throw <see cref="ObjectDisposedException"/>.
+/// <para>
+/// Not thread-safe: a dump, its records and their views must not be used from two threads at
+/// the same time, and must not be disposed while another thread is using them.
+/// </para>
 /// </remarks>
 public sealed class FonDump : IEnumerable<KeyValuePair<ulong, FonCollection>>, IDisposable {
     private const long EmptyDumpBytesEstimate = 64;
@@ -59,9 +63,16 @@ public sealed class FonDump : IEnumerable<KeyValuePair<ulong, FonCollection>>, I
     }
 
 
+    /// <summary>
+    /// Enumerates the records in ascending id order. The ids are read once, when enumeration
+    /// starts: a record removed meanwhile is skipped and a record added meanwhile is not visited.
+    /// </summary>
     public IEnumerator<KeyValuePair<ulong, FonCollection>> GetEnumerator() {
         foreach (ulong id in Ids) {
-            yield return new KeyValuePair<ulong, FonCollection>(id, Get(id));
+            FonCollection? record = TryGet(id);
+            if (record is not null) {
+                yield return new KeyValuePair<ulong, FonCollection>(id, record);
+            }
         }
     }
 

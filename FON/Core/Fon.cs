@@ -8,7 +8,9 @@ public partial class Fon {
     private static bool deserializeRawUnpack = false;
 
     /// <summary>
-    /// Automatically decompress RawData (Z85) during deserialization.
+    /// Decode raw values from Z85 while parsing instead of on first read. The values read
+    /// back are the same either way; with this on, invalid Z85 text fails the parse instead
+    /// of the later read.
     /// </summary>
     public static bool DeserializeRawUnpack {
         get => deserializeRawUnpack;
@@ -23,7 +25,8 @@ public partial class Fon {
 
     /// <summary>
     /// Maximum number of nested brackets ({} or []) the parser will accept
-    /// before rejecting input. Must be at least 1. Default: 64.
+    /// before rejecting input. Must be at least 1. Default: 64. Values above 128
+    /// act as 128.
     /// </summary>
     public static int MaxDepth {
         get => maxDepth;

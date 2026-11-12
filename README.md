@@ -21,7 +21,9 @@ A record is a line of comma-separated `key=type:value` pairs:
 key=type:value,key2=type2:value2
 ```
 
-A file holds one record per line. Records are identified by their line number (0-based) when the file is loaded.
+A file holds one record per line. Records are identified by their line number (0-based) when the file is loaded, so an empty line is an empty record.
+
+Parsing is strict: malformed text is an error, never a guess. An integer with trailing characters, a bool other than `0` or `1`, a missing, doubled or trailing comma, a repeated key and an unknown escape are all rejected, and an error in a file names the line (`line 12: ...`).
 
 ### Examples
 
@@ -233,11 +235,13 @@ using var parent = new FonCollection { { "child", child } };
 child.Get<int>("x");   // ObjectDisposedException: child now belongs to parent
 ```
 
-- `Add`, `Set`, a dump's `Add`, `Set`, and `Replace`, and each element of a list all take ownership of the collection passed in.
+- `Add`, `TryAdd`, `Set`, a dump's `Add`, `TryAdd`, `Set`, and `Replace`, and each element of a list all take ownership of the collection passed in.
 - A failed put leaves the collection with the caller, still usable. This includes adding to an existing key or id.
 - A view cannot be put into a container (`ArgumentException`). Call `Clone()` first and put the copy.
 - A collection cannot be put into itself, into its own nested view, or twice in the same list (`ArgumentException`).
 - `Clone()` returns a deep copy as a new owned collection. It works on views too.
+
+The types are not thread-safe. A dump, its records and their views must not be used from two threads at the same time, and must not be disposed while another thread is using them.
 
 ## API
 
@@ -307,13 +311,13 @@ Enumeration yields `KeyValuePair<ulong, FonCollection>` in ascending id order.
 | `Fon.DeserializeFromFileAutoAsync(FileInfo, int? maxDegreeOfParallelism = null)` | Reads a file into a new `FonDump`. Recommended. |
 | `Fon.DeserializeFromFileAsync`, `Fon.DeserializeFromFileChunkedAsync(FileInfo, int chunkSize = 10000, …)` | Same as `DeserializeFromFileAutoAsync`; kept for compatibility. |
 | `Fon.DeserializeRawUnpack` | `bool`. When `true`, `RawData` blobs are decoded while parsing. Default `false`. |
-| `Fon.MaxDepth` | `int`. Maximum nesting of `{}` and `[]`. Must be at least 1; default `64`. |
+| `Fon.MaxDepth` | `int`. Maximum nesting of `{}` and `[]`. Must be at least 1; default `64`; values above `128` act as `128`. |
 
 ### Exceptions
 
 | Exception | Raised when |
 |-----------|-------------|
-| `ArgumentException` | A key contains `=`, `"`, `{`, `}`, `[`, `]`, CR or LF; a view or a repeated collection is put into a container. |
+| `ArgumentException` | A key contains `=`, `"`, `{`, `}`, `[`, `]`, CR or LF, or starts with `,`; a string or key holds a lone surrogate; a view or a repeated collection is put into a container. |
 | `KeyNotFoundException` | A key or id is absent on read, or on `Replace`. |
 | `InvalidCastException` | `Get<T>` finds a value of another type. |
 | `InvalidOperationException` | `Add` finds an existing key or id. |

@@ -2,8 +2,9 @@ namespace FON.Native;
 
 
 /// <summary>
-/// Thrown when the native library reports a failure that has no more specific .NET mapping
-/// (parse, write, file and argument errors).
+/// Thrown when the native library reports a failure that has no more specific .NET mapping:
+/// a parse error, a write error or a file that cannot be read. Argument errors are thrown as
+/// <see cref="ArgumentException"/>.
 /// </summary>
 public class FonNativeException : Exception {
     public FonNativeException(int code, string message) : base(message) {

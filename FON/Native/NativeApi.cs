@@ -31,7 +31,9 @@ internal unsafe delegate int ArrayGet<T>(IntPtr collection, byte* key, long keyL
 /// the duration of each call.
 /// </summary>
 internal static unsafe class NativeApi {
-    private static readonly UTF8Encoding utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+    // Strict: a string with a lone surrogate cannot be written as UTF-8, and encoding it
+    // throws instead of silently storing U+FFFD in its place.
+    private static readonly UTF8Encoding utf8NoBom = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
 
 
