@@ -331,9 +331,11 @@ jobs:
       - build-native-macos-arm64
     if: needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
+    # nuget.org trusted publishing: the job's OIDC token is exchanged for a one-hour API key.
     permissions:
       contents: write
       packages: write
+      id-token: write
 
     steps:
     - uses: actions/checkout@v4
@@ -390,9 +392,16 @@ jobs:
     - name: List packages
       run: ls -la ./packages
 
+    # NUGET_USER is the nuget.org profile that created the trusted publishing policy.
+    - name: Log in to NuGet.org
+      id: nuget-login
+      uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+      with:
+        user: ${{ secrets.NUGET_USER }}
+
     - name: Publish to NuGet.org
       run: |
-        dotnet nuget push "./packages/*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ secrets.NUGET_API_TOKEN }} --skip-duplicate
+        dotnet nuget push "./packages/*.nupkg" --source "https://api.nuget.org/v3/index.json" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --skip-duplicate
 
     - name: Publish to GitHub Packages
       run: |
