@@ -6,6 +6,7 @@ A fast, human-readable, line-oriented serialization format — a compact alterna
 
 - **Compact, readable wire format** — `key=type:value` pairs, one record per line.
 - **Typed values** — integers of every width, floats, bool, string, binary blobs, nested objects, and arrays of them.
+- **Typed records without reflection** — mark a type with `[FonRecord]` and a source generator writes the code that maps it, so it works with trimming and Native AOT.
 - **Editable in memory** — add, set, replace and remove fields and records.
 - **Z85 binary encoding** for raw blobs (5 ASCII characters per 4 bytes).
 - **Nested objects with a depth limit** — nesting depth is configurable through `Fon.MaxDepth` (default 64).
@@ -97,6 +98,66 @@ string text = Fon.SerializeToString(collection);
 using var parsed = Fon.DeserializeCollection(text);
 int id = parsed.Get<int>("id");
 ```
+
+### Typed records
+
+Mark a `partial` class, struct or record with `[FonRecord]`. The source generator in the package implements `IFonRecord<T>` on it, so the type maps to and from a record without reflection:
+
+```csharp
+using FON.Core;
+using FON.Records;
+
+[FonRecord]
+public sealed partial record Snapshot(int version, string? activePanelId, IReadOnlyList<string> closedPanelIds, IReadOnlyList<Node> nodes);
+
+[FonRecord]
+public sealed partial record Node(string kind, double ratio, IReadOnlyList<string> tabIds);
+
+var snapshot = new Snapshot(1, "explorer", ["output"], [new Node("panel", 0.5, ["explorer"])]);
+
+string text = Fon.SerializeRecord(snapshot);
+// version=i:1,activePanelId=s:"explorer",closedPanelIds=s:["output"],nodes=o:[{kind=s:"panel",ratio=d:0.5,tabIds=s:["explorer"]}]
+
+Snapshot back = Fon.DeserializeRecord<Snapshot>(text);
+```
+
+Generic code reaches the mapping through the interface:
+
+```csharp
+static byte[] Encode<T>(T value) where T : IFonRecord<T> {
+    using FonCollection collection = T.ToFon(value);
+    return Encoding.UTF8.GetBytes(Fon.SerializeToString(collection));
+}
+```
+
+How a type is mapped:
+
+- **Written:** every public instance property with a getter, under its own name, in declaration order. A null value writes no key.
+- **Read:** the public constructor with the most parameters whose names all match property names, as for a positional record. Without one, the public parameterless constructor runs and every settable property is set. A property the constructor does not take is written but not read back.
+- **Missing key:** a nullable member reads as `null`, and a nullable list as an empty list. Any other missing key throws `FonRecordException`.
+- **Numbers** widen on read: a stored `int` reads into a `long`, `float` or `double` member, never the other way.
+- **Copies:** every value is copied out while reading, so the result stays valid after the collection or dump it came from is disposed.
+
+Member types:
+
+| Member type | Stored as |
+|-------------|-----------|
+| A type from the [type codes](#type-codes) table | That type |
+| An enum | Its name as a string, `mood=s:"calm"`; flags as `"read, write"` |
+| `int?`, `double?`, an enum or a record struct made nullable | The value, or no key when `null` |
+| Another `[FonRecord]` type | A nested object |
+| `T[]`, `List<T>`, `IReadOnlyList<T>` and other `IEnumerable<T>` of numbers, bools, strings, enums, `FonCollection` or `[FonRecord]` types | An array |
+
+An array member reads back as `T[]`; any other list reads back as `List<T>`, so its declared type must accept one. Nested record types must be marked too. A type the generator cannot map is a compile-time error:
+
+| Code | Error |
+|------|-------|
+| `FON001` | The type, or a type containing it, is not `partial`. |
+| `FON002` | A member's type cannot be stored. The message names the member. |
+| `FON003` | No constructor can be used for reading. |
+| `FON004` | The type is generic, abstract, static or a `ref struct`. |
+| `FON005` | A getter or setter of a member is not accessible from the type. |
+| `FON006` | Two public properties have the same name. |
 
 ### Many records
 
@@ -265,8 +326,8 @@ The types are not thread-safe. A dump, its records and their views must not be u
 | `TryGet<T>(string key)` | Reads a reference-type value as `T?`; `null` if absent or of another type. |
 | `TryGetNullable<T>(string key)` | Reads a value-type value as `T?`; `null` if absent or of another type. |
 | `Clone()` | Returns a deep copy as a new owned collection. |
-| `Serialize<T>(T obj)` | Static. Copies the public, non-null properties of `obj` into a new collection. |
-| `Deserialize<T>()` | Creates a `T` and sets its public properties from the matching keys. |
+| `Serialize<T>(T obj)` | Static. Copies the public, non-null properties of `obj` into a new collection, using reflection. Prefer a `[FonRecord]` type. |
+| `Deserialize<T>()` | Creates a `T` and sets its public properties from the matching keys, using reflection. Prefer a `[FonRecord]` type. |
 | `Dispose()` | Frees the native memory of an owned collection. |
 
 Enumeration yields `KeyValuePair<string, object>` in insertion order.
@@ -297,6 +358,14 @@ Enumeration yields `KeyValuePair<string, object>` in insertion order.
 
 Enumeration yields `KeyValuePair<ulong, FonCollection>` in ascending id order.
 
+### Records (namespace `FON.Records`)
+
+| Member | Description |
+|--------|-------------|
+| `[FonRecord]` | Marks a `partial` class, struct or record for the source generator. |
+| `IFonRecord<TSelf>` | Implemented by the generator: `static abstract FonCollection ToFon(TSelf value)` writes a new owned collection, `static abstract TSelf FromFon(FonCollection collection)` reads one. |
+| `FonRecordException` | A required key is missing, or a key holds a value that does not fit its member. |
+
 ### Module functions (`Fon`, namespace `FON.Core`)
 
 | Function | Description |
@@ -305,6 +374,10 @@ Enumeration yields `KeyValuePair<ulong, FonCollection>` in ascending id order.
 | `Fon.SerializeToString(FonDump)` | Serializes a dump, one line per record. |
 | `Fon.Deserialize(string)` / `Fon.Deserialize(ReadOnlySpan<byte>)` | Parses multi-line UTF-8 text into a new `FonDump`. |
 | `Fon.DeserializeCollection(string)` / `Fon.DeserializeCollection(ReadOnlySpan<byte>)` | Parses one line into a new owned `FonCollection`. |
+| `Fon.SerializeRecord<T>(T)` | Writes a `[FonRecord]` value as one line, without a trailing newline. |
+| `Fon.DeserializeRecord<T>(string)` / `Fon.DeserializeRecord<T>(ReadOnlySpan<byte>)` | Reads a `[FonRecord]` value from one line. |
+| `Fon.ToCollection<T>(T)` | Writes a `[FonRecord]` value into a new owned collection. |
+| `Fon.FromCollection<T>(FonCollection)` | Reads a `[FonRecord]` value from a collection or a view. |
 | `Fon.SerializeToFileAutoAsync(dump, FileInfo, int? maxDegreeOfParallelism = null)` | Writes a dump to a file. Recommended. |
 | `Fon.SerializeToFileAuto(dump, FileInfo, int? maxDegreeOfParallelism = null)` | Synchronous version of the above. |
 | `Fon.SerializeToFileAsync`, `Fon.SerializeToFilePipelineAsync`, `Fon.SerializeToFileChunkedAsync(dump, FileInfo, int chunkSize = 1000, …)` | Same as `SerializeToFileAutoAsync`; kept for compatibility. |
@@ -322,6 +395,7 @@ Enumeration yields `KeyValuePair<ulong, FonCollection>` in ascending id order.
 | `InvalidCastException` | `Get<T>` finds a value of another type. |
 | `InvalidOperationException` | `Add` finds an existing key or id. |
 | `FonStaleViewException` | A view outlived the data it refers to. Derives from `FonNativeException`. |
+| `FonRecordException` | Reading a `[FonRecord]` type finds a required key missing, or a value that does not fit its member. |
 | `ObjectDisposedException` | An owned collection or dump is used after `Dispose()`, after it was moved into a container, or through a view of a disposed owner. |
 | `FonNativeException` | Parse, write, and file errors. The `Code` property holds the result code, for example `1` for a missing file. |
 

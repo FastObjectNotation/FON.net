@@ -1,10 +1,12 @@
 <Solution>
   <!-- Core package -->
   <Project Path="FON/FON.csproj" />
+  <Project Path="FON.Generator/FON.Generator.csproj" />
 
   <!-- Tests -->
   <Folder Name="/FON.Tests/">
     <Project Path="FON.Tests/FON.Test/FON.Test.csproj" />
     <Project Path="FON.Tests/FON.Native.Test/FON.Native.Test.csproj" />
+    <Project Path="FON.Tests/FON.Generator.Test/FON.Generator.Test.csproj" />
   </Folder>
 </Solution>

@@ -50,3 +50,39 @@ jobs:
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
+
+  # Generated record codecs must stay free of reflection: the smoke app is published with
+  # Native AOT, the publish must report no trim or AOT warning, and the executable must pass.
+  aot:
+    name: Native AOT smoke test
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: FON.Native
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Build native
+      run: cargo build --release --manifest-path FON.Native/Cargo.toml
+
+    - name: Publish with Native AOT
+      shell: bash
+      run: |
+        dotnet publish FON.Tests/FON.Aot.Smoke/FON.Aot.Smoke.csproj -c Release -r win-x64 -o aot-out | tee publish.log
+        if grep -E "warning IL[0-9]+" publish.log; then
+          echo "::error::The Native AOT publish reported trim or AOT warnings"
+          exit 1
+        fi
+
+    - name: Run the published executable
+      run: ./aot-out/FON.Aot.Smoke.exe

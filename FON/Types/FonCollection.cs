@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using FON.Native;
 
 namespace FON.Types;
@@ -166,7 +167,18 @@ public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, I
 
 
 
-    public static FonCollection Serialize<T>(T obj) {
+    /// <summary>
+    /// Copies every non-null public property of <paramref name="obj"/> into a new collection,
+    /// using reflection; a value of a type the collection cannot hold throws
+    /// <see cref="NotSupportedException"/>. Prefer a type marked with
+    /// <see cref="FON.Records.FonRecordAttribute"/> and <see cref="FON.Core.Fon.ToCollection{T}(T)"/>:
+    /// generated code handles nested records, lists and enums and needs no reflection.
+    /// </summary>
+    /// <remarks>
+    /// Properties are read through the static type <typeparamref name="T"/>, which the trimmer
+    /// keeps; the properties of a derived runtime type are not written.
+    /// </remarks>
+    public static FonCollection Serialize<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(T obj) {
         System.Reflection.PropertyInfo[] properties = typeof(T).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
         FonCollection collection = new FonCollection();
 
@@ -183,7 +195,12 @@ public sealed class FonCollection : IEnumerable<KeyValuePair<string, object>>, I
 
 
 
-    public T Deserialize<T>() where T : new() {
+    /// <summary>
+    /// Creates a <typeparamref name="T"/> and sets each public property whose key holds a value of
+    /// the property's type, using reflection. Prefer a type marked with
+    /// <see cref="FON.Records.FonRecordAttribute"/> and <see cref="FON.Core.Fon.FromCollection{T}(FonCollection)"/>.
+    /// </summary>
+    public T Deserialize<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>() where T : new() {
         T result = new T();
         object boxedResult = result;
 

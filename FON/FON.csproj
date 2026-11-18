@@ -9,7 +9,22 @@
 		<PackageDescription>Fast Object Notation (FON): a fast, human-readable, line-oriented serialization format, a compact alternative to JSON for record-style data. Parallel dump serialization and parsing; supports all primitive types, arrays, nested objects and binary data. Ships native binaries for Windows, Linux, Linux musl and macOS (x64 and ARM64).</PackageDescription>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Optimize>true</Optimize>
+		<IsAotCompatible>true</IsAotCompatible>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<!--
+			The source generator for [FonRecord] types ships inside the package as an analyzer.
+			It is built with this project but not referenced by it.
+		-->
+		<ProjectReference Include="..\FON.Generator\FON.Generator.csproj"
+		                  ReferenceOutputAssembly="false"
+		                  PrivateAssets="all" />
+		<None Include="..\FON.Generator\bin\$(Configuration)\netstandard2.0\FON.Generator.dll"
+		      Pack="true"
+		      PackagePath="analyzers/dotnet/cs"
+		      Visible="false" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<!--
